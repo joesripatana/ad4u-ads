@@ -1,0 +1,10 @@
+{
+  "name": "ThaiScreen Player",
+  "short_name": "ThaiScreen",
+  "start_url": "index.html?player=TAB-BKK-REAL-001",
+  "display": "fullscreen",
+  "background_color": "#050708",
+  "theme_color": "#050708",
+  "orientation": "landscape",
+  "icons": []
+}

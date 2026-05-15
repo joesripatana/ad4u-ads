@@ -1865,6 +1865,12 @@ function addScreen(form) {
   const width = Number(form.width.value);
   const height = Number(form.height.value);
   if (!width || !height) return toast("Choose a valid screen size.");
+  const tabletId = form.tabletId.value.trim();
+  if (state.screens.some((screen) => screen.tabletId.toLowerCase() === tabletId.toLowerCase())) {
+    return toast("Tablet ID already exists. Use a unique tablet ID for each screen.");
+  }
+  const x = Number(form.x.value);
+  const y = Number(form.y.value);
   const screen = {
     id: uid("s"),
     name: form.name.value.trim(),
@@ -1873,9 +1879,9 @@ function addScreen(form) {
     venue: form.venue.value.trim(),
     status: "online",
     rate: Number(form.rate.value),
-    x: Number(form.x.value),
-    y: Number(form.y.value),
-    tabletId: form.tabletId.value.trim(),
+    x: Number.isFinite(x) ? Math.max(5, Math.min(95, x)) : 50,
+    y: Number.isFinite(y) ? Math.max(5, Math.min(95, y)) : 50,
+    tabletId,
     brightness: 80,
     width,
     height,
@@ -1885,6 +1891,9 @@ function addScreen(form) {
     photos: form.photos.value.split("\n").map((url) => url.trim()).filter(Boolean).slice(0, 6)
   };
   state.screens.push(screen);
+  state.route = "screens";
+  state.selectedScreens = [screen.id];
+  state.activeBookingScreenId = null;
   filters.province = screen.province;
   filters.text = "";
   modal = null;
@@ -2978,6 +2987,7 @@ function renderOrders() {
 
 function renderScreensAdmin() {
   const realScreen = realAndroidScreen();
+  const visibleScreens = screensSelectedFirst(filteredScreens());
   return `
     ${renderHeader("Screens", "Add, identify, monitor, and manage every tablet display location.", `<button class="btn primary" data-modal="screen">Add screen</button>`)}
     ${realScreen ? `<section class="panel real-screen-banner">
@@ -2989,9 +2999,9 @@ function renderScreensAdmin() {
       <div class="actions"><button class="btn primary" data-show-real-screen>Show this screen</button><button class="btn" data-player="${realScreen.id}">Open player</button><button class="btn" data-copy-player="${realScreen.id}">Copy player URL</button></div>
     </section>` : ""}
     <div class="grid two">
-      <section class="panel">${renderFilters()}${renderMap(filteredScreens())}</section>
-      <section class="panel"><div class="screen-list">${filteredScreens().map((screen) => `
-        <article class="screen-card">
+      <section class="panel">${renderFilters()}${renderMap(visibleScreens)}</section>
+      <section class="panel"><div class="screen-list">${visibleScreens.map((screen) => `
+        <article class="screen-card ${state.selectedScreens.includes(screen.id) ? "selected" : ""}">
           <div class="screen-head"><div><b>${screen.name}</b><div class="meta">${screen.tabletId} - ${screen.city}, ${screen.province}</div></div><span class="badge ${screen.status === "online" ? "ok" : screen.status === "warning" ? "warn" : "bad"}">${screen.status}</span></div>
           <div class="badges"><span class="badge">${money(screen.rate)}/15s</span><span class="badge">${screenOrientation(screen)}</span><span class="badge">${screen.width}x${screen.height}</span><span class="badge">Brightness ${screen.brightness}%</span><span class="badge">${screen.venue}</span></div>
           <p class="hint player-url">${playerUrl(screen)}</p>

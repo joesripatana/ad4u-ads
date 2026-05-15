@@ -8,6 +8,7 @@ deployment:
     - /bin/cp styles.css $DEPLOYPATH/styles.css
     - /bin/cp manifest.json $DEPLOYPATH/manifest.json
     - /bin/cp README.md $DEPLOYPATH/README.md
+    - /bin/cp update-now.php $DEPLOYPATH/update-now.php
     - /bin/rm -rf $DEPLOYPATH/assets
     - /bin/mkdir -p $DEPLOYPATH/assets
     - /bin/cp -R assets/. $DEPLOYPATH/assets/

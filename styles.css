@@ -123,6 +123,12 @@ button:disabled {
   gap: 10px;
 }
 
+.sidebar-update {
+  width: 100%;
+  min-height: 46px;
+  letter-spacing: 0.02em;
+}
+
 .main {
   min-width: 0;
   padding: 24px;

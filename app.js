@@ -539,6 +539,43 @@ function defaultTierPricing(rate) {
   return { Mon: rate, Tue: rate, Wed: rate, Thu: rate, Fri: rate, Sat: rate, Sun: rate };
 }
 
+function normalizeProvinceName(value = "") {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return THAILAND_PROVINCES.find((province) => province.toLowerCase() === trimmed.toLowerCase()) || trimmed;
+}
+
+function normalizeDistrictName(province, value = "") {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const normalizedProvince = normalizeProvinceName(province);
+  const knownDistricts = DISTRICTS_BY_PROVINCE[normalizedProvince] || [];
+  return knownDistricts.find((district) => district.toLowerCase() === trimmed.toLowerCase()) || trimmed;
+}
+
+function nextAvailablePinPosition(x, y) {
+  const baseX = Number.isFinite(x) ? Math.max(5, Math.min(95, x)) : 50;
+  const baseY = Number.isFinite(y) ? Math.max(5, Math.min(95, y)) : 50;
+  const offsets = [
+    [0, 0],
+    [2, -2],
+    [-2, 2],
+    [3, 1],
+    [-3, -1],
+    [4, -3],
+    [-4, 3],
+    [0, 4],
+    [0, -4]
+  ];
+  for (const [offsetX, offsetY] of offsets) {
+    const candidateX = Math.max(5, Math.min(95, baseX + offsetX));
+    const candidateY = Math.max(5, Math.min(95, baseY + offsetY));
+    const overlaps = state.screens.some((screen) => Math.abs(Number(screen.x) - candidateX) < 1.5 && Math.abs(Number(screen.y) - candidateY) < 1.5);
+    if (!overlaps) return { x: candidateX, y: candidateY };
+  }
+  return { x: baseX, y: baseY };
+}
+
 function billableSeconds(duration) {
   return Math.max(15, Math.ceil(Number(duration || 15) / 15) * 15);
 }
@@ -567,6 +604,33 @@ function setRoute(route) {
   state.route = route;
   saveState();
   render();
+}
+
+async function requestUpdateNow() {
+  const user = currentUser();
+  if (user?.role !== "super_admin") return;
+  const firstConfirm = window.confirm("Update now from Git? This will pull the latest pushed version for AD4U.");
+  if (!firstConfirm) return;
+  const secondConfirm = window.confirm("Please confirm again. Do you want to run the AD4U update now?");
+  if (!secondConfirm) return;
+  const updateCode = window.prompt("Enter the AD4U update code to run the live Git pull now.");
+  if (!updateCode) return toast("Update cancelled.");
+  toast("Requesting update now...");
+  try {
+    const response = await fetch(`${PUBLIC_APP_URL}/update-now.php`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-AD4U-Update-Code": updateCode
+      },
+      body: JSON.stringify({ requestedBy: user.email, at: new Date().toISOString() })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`Update request failed with ${response.status}`);
+    toast(payload.message || "Update requested. Check the live site again in a minute.");
+  } catch {
+    toast("Instant update could not run. Check the update code or server PHP command access. Daily 04:00 auto-update remains active.");
+  }
 }
 
 function clearBookingDraft() {
@@ -1869,18 +1933,21 @@ function addScreen(form) {
   if (state.screens.some((screen) => screen.tabletId.toLowerCase() === tabletId.toLowerCase())) {
     return toast("Tablet ID already exists. Use a unique tablet ID for each screen.");
   }
+  const province = normalizeProvinceName(form.province.value);
+  const city = normalizeDistrictName(province, form.city.value);
   const x = Number(form.x.value);
   const y = Number(form.y.value);
+  const pinPosition = nextAvailablePinPosition(x, y);
   const screen = {
     id: uid("s"),
     name: form.name.value.trim(),
-    province: form.province.value.trim(),
-    city: form.city.value.trim(),
+    province,
+    city,
     venue: form.venue.value.trim(),
     status: "online",
     rate: Number(form.rate.value),
-    x: Number.isFinite(x) ? Math.max(5, Math.min(95, x)) : 50,
-    y: Number.isFinite(y) ? Math.max(5, Math.min(95, y)) : 50,
+    x: pinPosition.x,
+    y: pinPosition.y,
     tabletId,
     brightness: 80,
     width,
@@ -1991,6 +2058,7 @@ function render() {
           ${navItems().map(([route, label]) => `<button class="${state.route === route ? "active" : ""}" data-route="${route}">${label}</button>`).join("")}
         </nav>
         <div class="sidebar-foot">
+          ${user.role === "super_admin" ? `<button class="btn primary sidebar-update" data-update-now>UPDATE NOW</button>` : ""}
           <button class="btn ghost" data-route="book">Customer booking view</button>
           <button class="btn ghost" data-logout>Log out</button>
         </div>
@@ -3244,6 +3312,7 @@ function bindAuth() {
 function bindCommon() {
   document.querySelectorAll("[data-language]").forEach((button) => button.addEventListener("click", () => setLanguage(button.dataset.language)));
   document.querySelectorAll("[data-route]").forEach((button) => button.addEventListener("click", () => setRoute(button.dataset.route)));
+  document.querySelector("[data-update-now]")?.addEventListener("click", () => requestUpdateNow());
   document.querySelector("[data-logout]")?.addEventListener("click", logout);
   document.querySelector("#phoneForm")?.addEventListener("submit", (event) => {
     event.preventDefault();

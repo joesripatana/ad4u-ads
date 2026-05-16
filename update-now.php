@@ -13,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $updateCode = $_SERVER['HTTP_X_AD4U_UPDATE_CODE'] ?? '';
-$expectedCode = 'AD4U-UPDATE-2026';
+$expectedCode = 'Tgmtgmtgm123!';
 
 if (!hash_equals($expectedCode, $updateCode)) {
     http_response_code(403);

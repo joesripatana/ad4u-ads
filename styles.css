@@ -478,16 +478,59 @@ button:disabled {
     #dfe8e9;
 }
 
-.map-label {
+.google-map-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 0;
+  background: #dfe8e9;
+}
+
+.map-toolbar {
   position: absolute;
-  top: 14px;
-  left: 14px;
-  z-index: 2;
+  inset: 14px 14px auto 14px;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.map-tools {
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.map-label {
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 9px 11px;
   font-weight: 800;
+  pointer-events: auto;
+}
+
+.google-map-canvas {
+  width: 100%;
+  min-height: 520px;
+}
+
+.map-fallback {
+  position: absolute;
+  inset: 0;
+}
+
+.map-fallback-copy {
+  position: absolute;
+  top: 72px;
+  left: 14px;
+  z-index: 2;
+  max-width: min(420px, calc(100% - 28px));
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
 }
 
 .pin {

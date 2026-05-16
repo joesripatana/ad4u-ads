@@ -3,6 +3,7 @@
 const MEDIA_DB_NAME = "thaiScreenAdsMedia";
 const MEDIA_STORE = "mediaFiles";
 const PUBLIC_APP_URL = "https://ad4u.adttix.com";
+const GOOGLE_MAPS_KEY_STORAGE = "ad4uGoogleMapsApiKey";
 const DEFAULT_SCREEN_WIDTH = 1080;
 const DEFAULT_SCREEN_HEIGHT = 1920;
 const SCREEN_SIZE_PRESETS = [
@@ -11,6 +12,33 @@ const SCREEN_SIZE_PRESETS = [
   { id: "square-1080x1080", label: "Square 1080x1080", width: 1080, height: 1080 },
   { id: "portrait-720x1280", label: "Portrait 720x1280", width: 720, height: 1280 }
 ];
+const THAILAND_GEO_BOUNDS = {
+  north: 20.6,
+  south: 5.4,
+  west: 97.2,
+  east: 105.8,
+  center: { lat: 13.7563, lng: 100.5018 }
+};
+const SEEDED_SCREEN_COORDINATES = {
+  "TAB-BKK-001": { lat: 13.7447, lng: 100.5331 },
+  "TAB-BKK-REAL-001": { lat: 13.7306, lng: 100.5696 },
+  "TAB-BKK-002": { lat: 13.7372, lng: 100.5603 },
+  "TAB-CNX-001": { lat: 18.7886, lng: 98.9853 },
+  "TAB-HKT-001": { lat: 7.8963, lng: 98.2966 },
+  "TAB-KKC-001": { lat: 16.4747, lng: 102.8208 },
+  "TAB-HDY-001": { lat: 7.0065, lng: 100.4687 }
+};
+const PROVINCE_CENTER_COORDINATES = {
+  Bangkok: { lat: 13.7563, lng: 100.5018 },
+  "Chiang Mai": { lat: 18.7883, lng: 98.9853 },
+  "Khon Kaen": { lat: 16.4419, lng: 102.8359 },
+  Phuket: { lat: 7.8804, lng: 98.3923 },
+  Songkhla: { lat: 7.1756, lng: 100.6143 },
+  "Pathum Thani": { lat: 14.0208, lng: 100.525 },
+  Nonthaburi: { lat: 13.8591, lng: 100.5217 },
+  "Samut Prakan": { lat: 13.5991, lng: 100.5998 },
+  "Chon Buri": { lat: 13.3611, lng: 100.9847 }
+};
 
 const THAILAND_PROVINCES = [
   "Amnat Charoen", "Ang Thong", "Bangkok", "Bueng Kan", "Buri Ram", "Chachoengsao", "Chai Nat", "Chaiyaphum",
@@ -85,12 +113,12 @@ const seedState = {
   ],
   screens: [
     { id: "s1", name: "Siam Square Entrance", province: "Bangkok", city: "Pathum Wan", venue: "Retail frontage", status: "online", rate: 260, x: 55, y: 48, tabletId: "TAB-BKK-001", brightness: 86, width: 1080, height: 1920, lastSeen: "2 min ago", tags: ["Mall", "Youth"], photos: ["https://images.unsplash.com/photo-1508009603885-50cf7c579365?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1552465011-b4e21bf6e79a?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1563492065599-3520f775eeed?auto=format&fit=crop&w=1200&q=80"] },
-    { id: "s-real-001", name: "Alpha EV Office Tablet", province: "Bangkok", city: "Watthana", venue: "Office reception test screen", status: "online", rate: 100, x: 60, y: 46, tabletId: "TAB-BKK-REAL-001", brightness: 90, width: 1080, height: 1920, lastSeen: "now", tags: ["EV", "Office", "Test screen"], photos: [] },
-    { id: "s2", name: "Asok BTS Walkway", province: "Bangkok", city: "Watthana", venue: "Transit corridor", status: "online", rate: 310, x: 58, y: 45, tabletId: "TAB-BKK-002", brightness: 91, width: 1920, height: 1080, lastSeen: "1 min ago", tags: ["Transit", "Office"], photos: ["https://images.unsplash.com/photo-1569154941061-e231b4725ef1?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1519451241324-20b4ea2c4220?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1542051841857-5f90071e7989?auto=format&fit=crop&w=1200&q=80"] },
-    { id: "s3", name: "Chiang Mai Old City Cafe", province: "Chiang Mai", city: "Mueang", venue: "Cafe counter", status: "online", rate: 145, x: 36, y: 24, tabletId: "TAB-CNX-001", brightness: 74, width: 1080, height: 1920, lastSeen: "4 min ago", tags: ["Tourist", "Cafe"], photos: ["https://images.unsplash.com/photo-1521017432531-fbd92d768814?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=1200&q=80"] },
-    { id: "s4", name: "Phuket Patong Hotel Lobby", province: "Phuket", city: "Kathu", venue: "Hotel lobby", status: "warning", rate: 210, x: 32, y: 80, tabletId: "TAB-HKT-001", brightness: 68, width: 1920, height: 1080, lastSeen: "18 min ago", tags: ["Tourist", "Hotel"], photos: ["https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1582719508461-905c673771fd?auto=format&fit=crop&w=1200&q=80"] },
-    { id: "s5", name: "Khon Kaen University Gate", province: "Khon Kaen", city: "Mueang", venue: "Campus shop", status: "online", rate: 125, x: 61, y: 32, tabletId: "TAB-KKC-001", brightness: 79, width: 1080, height: 1920, lastSeen: "3 min ago", tags: ["Student", "Campus"], photos: ["https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1571260899304-425eee4c7efc?auto=format&fit=crop&w=1200&q=80"] },
-    { id: "s6", name: "Hat Yai Market Corner", province: "Songkhla", city: "Hat Yai", venue: "Market kiosk", status: "offline", rate: 115, x: 48, y: 88, tabletId: "TAB-HDY-001", brightness: 0, width: 1080, height: 1920, lastSeen: "2 hr ago", tags: ["Market", "Local"], photos: ["https://images.unsplash.com/photo-1533900298318-6b8da08a523e?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1555529669-e69e7aa0ba9a?auto=format&fit=crop&w=1200&q=80"] }
+    { id: "s-real-001", name: "Alpha EV Office Tablet", province: "Bangkok", city: "Watthana", venue: "Office reception test screen", status: "online", rate: 100, x: 60, y: 46, tabletId: "TAB-BKK-REAL-001", brightness: 90, width: 1080, height: 1920, lastSeen: "now", tags: ["EV", "Office", "Test screen"], photos: [], latitude: 13.7306, longitude: 100.5696 },
+    { id: "s2", name: "Asok BTS Walkway", province: "Bangkok", city: "Watthana", venue: "Transit corridor", status: "online", rate: 310, x: 58, y: 45, tabletId: "TAB-BKK-002", brightness: 91, width: 1920, height: 1080, lastSeen: "1 min ago", tags: ["Transit", "Office"], photos: ["https://images.unsplash.com/photo-1569154941061-e231b4725ef1?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1519451241324-20b4ea2c4220?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1542051841857-5f90071e7989?auto=format&fit=crop&w=1200&q=80"], latitude: 13.7372, longitude: 100.5603 },
+    { id: "s3", name: "Chiang Mai Old City Cafe", province: "Chiang Mai", city: "Mueang", venue: "Cafe counter", status: "online", rate: 145, x: 36, y: 24, tabletId: "TAB-CNX-001", brightness: 74, width: 1080, height: 1920, lastSeen: "4 min ago", tags: ["Tourist", "Cafe"], photos: ["https://images.unsplash.com/photo-1521017432531-fbd92d768814?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=1200&q=80"], latitude: 18.7886, longitude: 98.9853 },
+    { id: "s4", name: "Phuket Patong Hotel Lobby", province: "Phuket", city: "Kathu", venue: "Hotel lobby", status: "warning", rate: 210, x: 32, y: 80, tabletId: "TAB-HKT-001", brightness: 68, width: 1920, height: 1080, lastSeen: "18 min ago", tags: ["Tourist", "Hotel"], photos: ["https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1582719508461-905c673771fd?auto=format&fit=crop&w=1200&q=80"], latitude: 7.8963, longitude: 98.2966 },
+    { id: "s5", name: "Khon Kaen University Gate", province: "Khon Kaen", city: "Mueang", venue: "Campus shop", status: "online", rate: 125, x: 61, y: 32, tabletId: "TAB-KKC-001", brightness: 79, width: 1080, height: 1920, lastSeen: "3 min ago", tags: ["Student", "Campus"], photos: ["https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1571260899304-425eee4c7efc?auto=format&fit=crop&w=1200&q=80"], latitude: 16.4747, longitude: 102.8208 },
+    { id: "s6", name: "Hat Yai Market Corner", province: "Songkhla", city: "Hat Yai", venue: "Market kiosk", status: "offline", rate: 115, x: 48, y: 88, tabletId: "TAB-HDY-001", brightness: 0, width: 1080, height: 1920, lastSeen: "2 hr ago", tags: ["Market", "Local"], photos: ["https://images.unsplash.com/photo-1533900298318-6b8da08a523e?auto=format&fit=crop&w=1200&q=80", "https://images.unsplash.com/photo-1555529669-e69e7aa0ba9a?auto=format&fit=crop&w=1200&q=80"], latitude: 7.0065, longitude: 100.4687 }
   ],
   adverts: [
     { id: "a1", customerId: "u3", title: "Songkran Hotel Promo", type: "video", fileName: "songkran-promo.mp4", duration: 16, billableSeconds: 30, status: "approved", uploadedAt: "2026-05-02" }
@@ -124,6 +152,9 @@ let stickerUpload = null;
 let stickerImage = null;
 const mediaUrlCache = new Map();
 const mediaLoads = new Set();
+let googleMapsLoader = null;
+let googleScreenMap = null;
+let googleScreenMarkers = [];
 
 const stickerTemplates = [
   { id: "hello", text: "สวัสดีค่า", color: "#ef5f8d", accent: "heart", image: [54, 34, 260, 336], textY: 386, rotate: -2 },
@@ -185,7 +216,19 @@ function hydrateState(loaded) {
   });
   loaded.screens = loaded.screens.map((screen) => {
     const seeded = seedState.screens.find((item) => item.id === screen.id);
-    return { ...screen, width: Number(screen.width || seeded?.width || DEFAULT_SCREEN_WIDTH), height: Number(screen.height || seeded?.height || DEFAULT_SCREEN_HEIGHT), photos: screen.photos?.length ? screen.photos : seeded?.photos || [], tierPricing: screen.tierPricing || seeded?.tierPricing || defaultTierPricing(screen.rate), defaultAdverts: screen.defaultAdverts || seeded?.defaultAdverts || [] };
+    const coordinates = normalizedCoordinatesForScreen({ ...seeded, ...screen });
+    return {
+      ...screen,
+      width: Number(screen.width || seeded?.width || DEFAULT_SCREEN_WIDTH),
+      height: Number(screen.height || seeded?.height || DEFAULT_SCREEN_HEIGHT),
+      photos: screen.photos?.length ? screen.photos : seeded?.photos || [],
+      tierPricing: screen.tierPricing || seeded?.tierPricing || defaultTierPricing(screen.rate),
+      defaultAdverts: screen.defaultAdverts || seeded?.defaultAdverts || [],
+      latitude: coordinates.latitude,
+      longitude: coordinates.longitude,
+      x: coordinates.x,
+      y: coordinates.y
+    };
   });
   loaded.moderationRules = loaded.moderationRules?.length ? loaded.moderationRules : [...seedState.moderationRules];
   loaded.houseAdvert = { ...seedState.houseAdvert, ...(loaded.houseAdvert || {}) };
@@ -480,6 +523,83 @@ function splitMobile(mobile = "") {
 
 function screenSizePresetFor(width = DEFAULT_SCREEN_WIDTH, height = DEFAULT_SCREEN_HEIGHT) {
   return SCREEN_SIZE_PRESETS.find((preset) => Number(preset.width) === Number(width) && Number(preset.height) === Number(height))?.id || "custom";
+}
+
+function clampLatitude(value) {
+  return Math.max(THAILAND_GEO_BOUNDS.south, Math.min(THAILAND_GEO_BOUNDS.north, Number(value)));
+}
+
+function clampLongitude(value) {
+  return Math.max(THAILAND_GEO_BOUNDS.west, Math.min(THAILAND_GEO_BOUNDS.east, Number(value)));
+}
+
+function latLngToMapPosition(latitude, longitude) {
+  const lat = clampLatitude(latitude);
+  const lng = clampLongitude(longitude);
+  const x = ((lng - THAILAND_GEO_BOUNDS.west) / (THAILAND_GEO_BOUNDS.east - THAILAND_GEO_BOUNDS.west)) * 100;
+  const y = ((THAILAND_GEO_BOUNDS.north - lat) / (THAILAND_GEO_BOUNDS.north - THAILAND_GEO_BOUNDS.south)) * 100;
+  return {
+    x: Math.max(5, Math.min(95, x)),
+    y: Math.max(5, Math.min(95, y))
+  };
+}
+
+function defaultCoordinatesForScreen(screen) {
+  return SEEDED_SCREEN_COORDINATES[screen.tabletId] || PROVINCE_CENTER_COORDINATES[normalizeProvinceName(screen.province)] || THAILAND_GEO_BOUNDS.center;
+}
+
+function normalizedCoordinatesForScreen(screen) {
+  const fallback = defaultCoordinatesForScreen(screen);
+  const latitude = Number.isFinite(Number(screen.latitude)) ? clampLatitude(screen.latitude) : fallback.lat;
+  const longitude = Number.isFinite(Number(screen.longitude)) ? clampLongitude(screen.longitude) : fallback.lng;
+  const position = latLngToMapPosition(latitude, longitude);
+  return { latitude, longitude, x: position.x, y: position.y };
+}
+
+function screenGoogleMapsUrl(screen) {
+  const coordinates = normalizedCoordinatesForScreen(screen);
+  return `https://www.google.com/maps?q=${coordinates.latitude},${coordinates.longitude}`;
+}
+
+function getGoogleMapsApiKey() {
+  return window.AD4U_GOOGLE_MAPS_API_KEY || localStorage.getItem(GOOGLE_MAPS_KEY_STORAGE) || "";
+}
+
+function loadGoogleMapsApi() {
+  if (window.google?.maps) return Promise.resolve(window.google.maps);
+  if (googleMapsLoader) return googleMapsLoader;
+  const apiKey = getGoogleMapsApiKey();
+  if (!apiKey) return Promise.reject(new Error("missing-google-maps-key"));
+  googleMapsLoader = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve(window.google.maps);
+    script.onerror = () => {
+      googleMapsLoader = null;
+      reject(new Error("google-maps-load-failed"));
+    };
+    document.head.appendChild(script);
+  });
+  return googleMapsLoader;
+}
+
+function promptForGoogleMapsApiKey() {
+  const current = getGoogleMapsApiKey();
+  const nextKey = window.prompt("Paste your Google Maps JavaScript API key.", current || "");
+  if (nextKey === null) return;
+  if (!nextKey.trim()) {
+    localStorage.removeItem(GOOGLE_MAPS_KEY_STORAGE);
+    googleMapsLoader = null;
+    toast("Google Maps API key removed from this browser.");
+    render();
+    return;
+  }
+  localStorage.setItem(GOOGLE_MAPS_KEY_STORAGE, nextKey.trim());
+  googleMapsLoader = null;
+  toast("Google Maps API key saved in this browser.");
+  render();
 }
 
 function renderScreenSizeOptions(selected = "portrait-1080x1920") {
@@ -1935,9 +2055,13 @@ function addScreen(form) {
   }
   const province = normalizeProvinceName(form.province.value);
   const city = normalizeDistrictName(province, form.city.value);
-  const x = Number(form.x.value);
-  const y = Number(form.y.value);
-  const pinPosition = nextAvailablePinPosition(x, y);
+  const latitudeInput = Number(form.latitude.value);
+  const longitudeInput = Number(form.longitude.value);
+  const fallbackCoordinates = PROVINCE_CENTER_COORDINATES[province] || THAILAND_GEO_BOUNDS.center;
+  const latitude = Number.isFinite(latitudeInput) ? clampLatitude(latitudeInput) : fallbackCoordinates.lat;
+  const longitude = Number.isFinite(longitudeInput) ? clampLongitude(longitudeInput) : fallbackCoordinates.lng;
+  const mapPosition = latLngToMapPosition(latitude, longitude);
+  const pinPosition = nextAvailablePinPosition(mapPosition.x, mapPosition.y);
   const screen = {
     id: uid("s"),
     name: form.name.value.trim(),
@@ -1948,6 +2072,8 @@ function addScreen(form) {
     rate: Number(form.rate.value),
     x: pinPosition.x,
     y: pinPosition.y,
+    latitude,
+    longitude,
     tabletId,
     brightness: 80,
     width,
@@ -2722,10 +2848,23 @@ function screensSelectedFirst(screens) {
 }
 
 function renderMap(screens) {
+  const hasApiKey = Boolean(getGoogleMapsApiKey());
   return `
-    <div class="map-wrap">
-      <div class="map-label">Thailand screen overlay - replace with Google Maps API layer</div>
-      ${screens.map((screen) => `<button class="pin ${state.selectedScreens.includes(screen.id) ? "selected" : ""}" style="left:${screen.x}%;top:${screen.y}%" title="${screen.name}" data-screen="${screen.id}"><span>${screen.province.slice(0, 2).toUpperCase()}</span></button>`).join("")}
+    <div class="map-wrap google-map-shell">
+      <div class="map-toolbar">
+        <div class="map-label">Google Maps live screen view</div>
+        <div class="map-tools">
+          ${currentUser()?.role === "super_admin" ? `<button class="btn small" type="button" data-set-google-key>${hasApiKey ? "Change Google Maps API key" : "Add Google Maps API key"}</button>` : ""}
+        </div>
+      </div>
+      <div class="google-map-canvas" id="screenMap" data-screen-map></div>
+      <div class="map-fallback" data-map-fallback ${hasApiKey ? "hidden" : ""}>
+        <div class="map-fallback-copy">
+          <b>${hasApiKey ? "Google Maps is loading..." : "Add your Google Maps JavaScript API key to unlock live zoom and pan."}</b>
+          <p class="hint">${hasApiKey ? "If the map still does not appear, check that Maps JavaScript API is enabled for your key." : "The old static pin view stays here as a fallback until the real map is turned on."}</p>
+        </div>
+        ${screens.map((screen) => `<button class="pin ${state.selectedScreens.includes(screen.id) ? "selected" : ""}" style="left:${screen.x}%;top:${screen.y}%" title="${screen.name}" data-screen="${screen.id}"><span>${screen.province.slice(0, 2).toUpperCase()}</span></button>`).join("")}
+      </div>
     </div>
   `;
 }
@@ -2747,6 +2886,7 @@ function renderScreenDetails(screen) {
       </div>
       <div class="badges">${screen.tags.map((tag) => `<span class="badge">${tag}</span>`).join("")}<span class="badge">${money(screen.rate)}/15s</span><span class="badge">${screenOrientation(screen)}</span><span class="badge">${screen.width}x${screen.height}</span><span class="badge">Brightness ${screen.brightness}%</span></div>
       <p class="hint">${screen.tabletId} - last seen ${screen.lastSeen}</p>
+      <p class="hint"><a href="${screenGoogleMapsUrl(screen)}" target="_blank" rel="noreferrer">Open this location in Google Maps</a></p>
       <p class="hint player-url">${playerUrl(screen)}</p>
       <div class="actions"><button class="btn" data-player="${screen.id}">Open player</button><button class="btn" data-copy-player="${screen.id}">Copy player URL</button><button class="btn primary" data-book-screen="${screen.id}">Book</button></div>
     </article>
@@ -2902,6 +3042,101 @@ function renderCoverageMap() {
       <div class="missing-zone south">South opportunity</div>
     </div>
   `;
+}
+
+async function initializeGoogleScreenMap() {
+  const mapElement = document.querySelector("[data-screen-map]");
+  const fallback = document.querySelector("[data-map-fallback]");
+  if (!mapElement) return;
+  const visibleScreens = filteredScreens();
+  if (!getGoogleMapsApiKey()) {
+    mapElement.innerHTML = "";
+    if (fallback) fallback.hidden = false;
+    return;
+  }
+  try {
+    const maps = await loadGoogleMapsApi();
+    if (!mapElement.isConnected) return;
+    if (fallback) fallback.hidden = true;
+    const map = new maps.Map(mapElement, {
+      center: THAILAND_GEO_BOUNDS.center,
+      zoom: 6,
+      mapTypeControl: true,
+      streetViewControl: false,
+      fullscreenControl: true,
+      gestureHandling: "greedy"
+    });
+    googleScreenMap = map;
+    googleScreenMarkers.forEach((marker) => marker.setMap(null));
+    googleScreenMarkers = [];
+    const selectedScreenId = state.selectedScreens[0];
+    const infoWindow = new maps.InfoWindow();
+    const bounds = new maps.LatLngBounds();
+    visibleScreens.forEach((screen) => {
+      const coordinates = normalizedCoordinatesForScreen(screen);
+      const marker = new maps.Marker({
+        map,
+        position: { lat: coordinates.latitude, lng: coordinates.longitude },
+        title: `${screen.name} - ${screen.city}, ${screen.province}`,
+        label: {
+          text: screen.province.slice(0, 2).toUpperCase(),
+          color: "#ffffff",
+          fontSize: "11px",
+          fontWeight: "700"
+        },
+        icon: {
+          path: maps.SymbolPath.CIRCLE,
+          scale: state.selectedScreens.includes(screen.id) ? 13 : 11,
+          fillColor: state.selectedScreens.includes(screen.id) ? "#7137f1" : "#cc1ea6",
+          fillOpacity: 1,
+          strokeColor: "#ffffff",
+          strokeWeight: 3
+        }
+      });
+      marker.addListener("click", () => {
+        infoWindow.setContent(`
+          <div style="min-width:220px;font:13px Inter,Arial,sans-serif;color:#152033;">
+            <div style="font-weight:700;margin-bottom:4px;">${screen.name}</div>
+            <div style="margin-bottom:6px;">${screen.city}, ${screen.province}</div>
+            <div style="margin-bottom:6px;">${money(screen.rate)}/15s • ${screen.width}x${screen.height}</div>
+            <a href="${screenGoogleMapsUrl(screen)}" target="_blank" rel="noreferrer">Open in Google Maps</a>
+          </div>
+        `);
+        infoWindow.open({ anchor: marker, map });
+        toggleScreen(screen.id);
+      });
+      googleScreenMarkers.push(marker);
+      bounds.extend(marker.getPosition());
+    });
+    if (!googleScreenMarkers.length) {
+      map.setCenter(THAILAND_GEO_BOUNDS.center);
+      map.setZoom(6);
+      return;
+    }
+    if (googleScreenMarkers.length === 1) {
+      map.setCenter(bounds.getCenter());
+      map.setZoom(13);
+      return;
+    }
+    map.fitBounds(bounds, 48);
+    if (selectedScreenId) {
+      const selectedScreen = visibleScreens.find((screen) => screen.id === selectedScreenId);
+      if (selectedScreen) {
+        const coordinates = normalizedCoordinatesForScreen(selectedScreen);
+        window.setTimeout(() => {
+          map.panTo({ lat: coordinates.latitude, lng: coordinates.longitude });
+          map.setZoom(Math.max(map.getZoom() || 6, 13));
+        }, 160);
+      }
+    }
+  } catch {
+    mapElement.innerHTML = "";
+    if (fallback) fallback.hidden = false;
+    const fallbackCopy = fallback?.querySelector(".map-fallback-copy");
+    if (fallbackCopy) {
+      fallbackCopy.innerHTML = `<b>Google Maps could not load.</b><p class="hint">Check that your API key is valid, billing is enabled, and Maps JavaScript API is turned on.</p>`;
+    }
+  }
 }
 
 function renderAdvertMiniPreview(advert) {
@@ -3264,8 +3499,8 @@ function renderModal() {
           <div class="field"><label>Venue details</label><input name="venue" required /></div>
           <div class="grid three">
             <div class="field"><label>Rate per 15s THB</label><input name="rate" type="number" value="150" required /></div>
-            <div class="field"><label>Map X %</label><input name="x" type="number" min="5" max="95" value="50" required /></div>
-            <div class="field"><label>Map Y %</label><input name="y" type="number" min="5" max="95" value="50" required /></div>
+            <div class="field"><label>Latitude</label><input name="latitude" type="number" step="0.000001" value="13.756300" required /></div>
+            <div class="field"><label>Longitude</label><input name="longitude" type="number" step="0.000001" value="100.501800" required /></div>
           </div>
           <div class="grid two">
             <div class="field"><label>Screen size</label><select name="sizePreset" data-screen-size-preset>${renderScreenSizeOptions("portrait-1080x1920")}</select></div>
@@ -3313,6 +3548,7 @@ function bindCommon() {
   document.querySelectorAll("[data-language]").forEach((button) => button.addEventListener("click", () => setLanguage(button.dataset.language)));
   document.querySelectorAll("[data-route]").forEach((button) => button.addEventListener("click", () => setRoute(button.dataset.route)));
   document.querySelector("[data-update-now]")?.addEventListener("click", () => requestUpdateNow());
+  document.querySelector("[data-set-google-key]")?.addEventListener("click", promptForGoogleMapsApiKey);
   document.querySelector("[data-logout]")?.addEventListener("click", logout);
   document.querySelector("#phoneForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -3449,6 +3685,7 @@ function bindCommon() {
     setAdvertStatus(advertId, status);
   }));
   document.querySelectorAll("[data-pair]").forEach((button) => button.addEventListener("click", () => pairTablet(button.dataset.pair)));
+  initializeGoogleScreenMap();
 }
 
 applyPlayerDeepLink();

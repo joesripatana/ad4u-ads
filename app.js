@@ -2874,21 +2874,22 @@ function screensSelectedFirst(screens) {
 }
 
 function renderMap(screens) {
-    const hasApiKey = Boolean(getGoogleMapsApiKey());
-    return `
-      <div class="map-wrap google-map-shell">
-        <div class="map-toolbar">
-          <div class="map-label">Google Maps live screen view</div>
-          <div class="map-tools">
-            ${currentUser()?.role === "super_admin" ? `<button class="btn small" type="button" data-set-google-key>${hasApiKey ? "Change Google Maps API key" : "Add Google Maps API key"}</button>` : ""}
-          </div>
+  const hasApiKey = Boolean(getGoogleMapsApiKey());
+  const mapStatus = state.googleMapsStatus || (hasApiKey ? GOOGLE_MAPS_STATUS.loading : GOOGLE_MAPS_STATUS.missing);
+  return `
+    <div class="map-wrap google-map-shell">
+      <div class="map-toolbar">
+        <div class="map-label">Google Maps live screen view</div>
+        <div class="map-tools">
+          ${currentUser()?.role === "super_admin" ? `<button class="btn small" type="button" data-set-google-key>${hasApiKey ? "Change Google Maps API key" : "Add Google Maps API key"}</button>` : ""}
         </div>
-        <div class="map-status" data-map-status data-tone="${hasApiKey ? "neutral" : "warning"}" ${!state.googleMapsStatus && hasApiKey ? "hidden" : ""}>${state.googleMapsStatus || (hasApiKey ? GOOGLE_MAPS_STATUS.loading : GOOGLE_MAPS_STATUS.missing)}</div>
-        <div class="google-map-canvas" id="screenMap" data-screen-map></div>
-        <div class="map-fallback" data-map-fallback ${hasApiKey ? "hidden" : ""}>
-          <div class="map-fallback-copy">
-            <b>${hasApiKey ? "Google Maps is loading..." : "Add your Google Maps JavaScript API key to unlock live zoom and pan."}</b>
-            <p class="hint">${hasApiKey ? "If the map still does not appear, check that Maps JavaScript API is enabled for your key." : "The old static pin view stays here as a fallback until the real map is turned on."}</p>
+      </div>
+      <div class="map-status" data-map-status data-tone="${hasApiKey ? "neutral" : "warning"}" ${!state.googleMapsStatus && hasApiKey ? "hidden" : ""}>${mapStatus}</div>
+      <div class="google-map-canvas" id="screenMap" data-screen-map></div>
+      <div class="map-fallback" data-map-fallback ${hasApiKey ? "hidden" : ""}>
+        <div class="map-fallback-copy">
+          <b>${hasApiKey ? "Google Maps is loading..." : "Add your Google Maps JavaScript API key to unlock live zoom and pan."}</b>
+          <p class="hint">${hasApiKey ? "If the map still does not appear, check that Maps JavaScript API is enabled for your key." : "The old static pin view stays here as a fallback until the real map is turned on."}</p>
         </div>
         ${screens.map((screen) => `<button class="pin ${state.selectedScreens.includes(screen.id) ? "selected" : ""}" style="left:${screen.x}%;top:${screen.y}%" title="${screen.name}" data-screen="${screen.id}"><span>${screen.province.slice(0, 2).toUpperCase()}</span></button>`).join("")}
       </div>

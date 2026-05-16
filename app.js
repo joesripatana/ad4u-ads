@@ -4,6 +4,13 @@ const MEDIA_DB_NAME = "thaiScreenAdsMedia";
 const MEDIA_STORE = "mediaFiles";
 const PUBLIC_APP_URL = "https://ad4u.adttix.com";
 const GOOGLE_MAPS_KEY_STORAGE = "ad4uGoogleMapsApiKey";
+const GOOGLE_MAPS_STATUS = {
+  idle: "",
+  loading: "Google Maps API key detected. Loading live map...",
+  ready: "Live Google Maps view is ready.",
+  missing: "Add your Google Maps JavaScript API key to unlock live zoom and pan.",
+  failed: "Google Maps could not load. Check your key, billing, referrer restriction, and enabled APIs."
+};
 const DEFAULT_SCREEN_WIDTH = 1080;
 const DEFAULT_SCREEN_HEIGHT = 1920;
 const SCREEN_SIZE_PRESETS = [
@@ -106,6 +113,7 @@ const seedState = {
   },
   houseAdverts: [],
   toast: "",
+  googleMapsStatus: "",
   users: [
     { id: "u1", name: "Owner Super Admin", email: "owner@thaiscreen.test", password: "admin123", role: "super_admin" },
     { id: "u2", name: "Bangkok Operator", email: "operator@thaiscreen.test", password: "operator123", role: "operator" },
@@ -575,7 +583,14 @@ function loadGoogleMapsApi() {
     script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly`;
     script.async = true;
     script.defer = true;
-    script.onload = () => resolve(window.google.maps);
+    script.onload = () => {
+      if (window.google?.maps) {
+        resolve(window.google.maps);
+        return;
+      }
+      googleMapsLoader = null;
+      reject(new Error("google-maps-api-unavailable"));
+    };
     script.onerror = () => {
       googleMapsLoader = null;
       reject(new Error("google-maps-load-failed"));
@@ -592,14 +607,25 @@ function promptForGoogleMapsApiKey() {
   if (!nextKey.trim()) {
     localStorage.removeItem(GOOGLE_MAPS_KEY_STORAGE);
     googleMapsLoader = null;
+    state.googleMapsStatus = GOOGLE_MAPS_STATUS.missing;
     toast("Google Maps API key removed from this browser.");
     render();
     return;
   }
   localStorage.setItem(GOOGLE_MAPS_KEY_STORAGE, nextKey.trim());
   googleMapsLoader = null;
+  state.googleMapsStatus = GOOGLE_MAPS_STATUS.loading;
   toast("Google Maps API key saved in this browser.");
   render();
+}
+
+function updateMapStatus(message = "", tone = "neutral") {
+  state.googleMapsStatus = message;
+  const node = document.querySelector("[data-map-status]");
+  if (!node) return;
+  node.textContent = message;
+  node.dataset.tone = tone;
+  node.hidden = !message;
 }
 
 function renderScreenSizeOptions(selected = "portrait-1080x1920") {
@@ -2848,20 +2874,21 @@ function screensSelectedFirst(screens) {
 }
 
 function renderMap(screens) {
-  const hasApiKey = Boolean(getGoogleMapsApiKey());
-  return `
-    <div class="map-wrap google-map-shell">
-      <div class="map-toolbar">
-        <div class="map-label">Google Maps live screen view</div>
-        <div class="map-tools">
-          ${currentUser()?.role === "super_admin" ? `<button class="btn small" type="button" data-set-google-key>${hasApiKey ? "Change Google Maps API key" : "Add Google Maps API key"}</button>` : ""}
+    const hasApiKey = Boolean(getGoogleMapsApiKey());
+    return `
+      <div class="map-wrap google-map-shell">
+        <div class="map-toolbar">
+          <div class="map-label">Google Maps live screen view</div>
+          <div class="map-tools">
+            ${currentUser()?.role === "super_admin" ? `<button class="btn small" type="button" data-set-google-key>${hasApiKey ? "Change Google Maps API key" : "Add Google Maps API key"}</button>` : ""}
+          </div>
         </div>
-      </div>
-      <div class="google-map-canvas" id="screenMap" data-screen-map></div>
-      <div class="map-fallback" data-map-fallback ${hasApiKey ? "hidden" : ""}>
-        <div class="map-fallback-copy">
-          <b>${hasApiKey ? "Google Maps is loading..." : "Add your Google Maps JavaScript API key to unlock live zoom and pan."}</b>
-          <p class="hint">${hasApiKey ? "If the map still does not appear, check that Maps JavaScript API is enabled for your key." : "The old static pin view stays here as a fallback until the real map is turned on."}</p>
+        <div class="map-status" data-map-status data-tone="${hasApiKey ? "neutral" : "warning"}" ${!state.googleMapsStatus && hasApiKey ? "hidden" : ""}>${state.googleMapsStatus || (hasApiKey ? GOOGLE_MAPS_STATUS.loading : GOOGLE_MAPS_STATUS.missing)}</div>
+        <div class="google-map-canvas" id="screenMap" data-screen-map></div>
+        <div class="map-fallback" data-map-fallback ${hasApiKey ? "hidden" : ""}>
+          <div class="map-fallback-copy">
+            <b>${hasApiKey ? "Google Maps is loading..." : "Add your Google Maps JavaScript API key to unlock live zoom and pan."}</b>
+            <p class="hint">${hasApiKey ? "If the map still does not appear, check that Maps JavaScript API is enabled for your key." : "The old static pin view stays here as a fallback until the real map is turned on."}</p>
         </div>
         ${screens.map((screen) => `<button class="pin ${state.selectedScreens.includes(screen.id) ? "selected" : ""}" style="left:${screen.x}%;top:${screen.y}%" title="${screen.name}" data-screen="${screen.id}"><span>${screen.province.slice(0, 2).toUpperCase()}</span></button>`).join("")}
       </div>
@@ -3052,8 +3079,10 @@ async function initializeGoogleScreenMap() {
   if (!getGoogleMapsApiKey()) {
     mapElement.innerHTML = "";
     if (fallback) fallback.hidden = false;
+    updateMapStatus(GOOGLE_MAPS_STATUS.missing, "warning");
     return;
   }
+  updateMapStatus(GOOGLE_MAPS_STATUS.loading, "neutral");
   try {
     const maps = await loadGoogleMapsApi();
     if (!mapElement.isConnected) return;
@@ -3119,23 +3148,25 @@ async function initializeGoogleScreenMap() {
       return;
     }
     map.fitBounds(bounds, 48);
-    if (selectedScreenId) {
-      const selectedScreen = visibleScreens.find((screen) => screen.id === selectedScreenId);
-      if (selectedScreen) {
-        const coordinates = normalizedCoordinatesForScreen(selectedScreen);
-        window.setTimeout(() => {
+      if (selectedScreenId) {
+        const selectedScreen = visibleScreens.find((screen) => screen.id === selectedScreenId);
+        if (selectedScreen) {
+          const coordinates = normalizedCoordinatesForScreen(selectedScreen);
+          window.setTimeout(() => {
           map.panTo({ lat: coordinates.latitude, lng: coordinates.longitude });
           map.setZoom(Math.max(map.getZoom() || 6, 13));
-        }, 160);
+          }, 160);
+        }
       }
-    }
-  } catch {
-    mapElement.innerHTML = "";
-    if (fallback) fallback.hidden = false;
-    const fallbackCopy = fallback?.querySelector(".map-fallback-copy");
-    if (fallbackCopy) {
-      fallbackCopy.innerHTML = `<b>Google Maps could not load.</b><p class="hint">Check that your API key is valid, billing is enabled, and Maps JavaScript API is turned on.</p>`;
-    }
+      updateMapStatus(GOOGLE_MAPS_STATUS.ready, "success");
+    } catch {
+      mapElement.innerHTML = "";
+      if (fallback) fallback.hidden = false;
+      updateMapStatus(GOOGLE_MAPS_STATUS.failed, "warning");
+      const fallbackCopy = fallback?.querySelector(".map-fallback-copy");
+      if (fallbackCopy) {
+        fallbackCopy.innerHTML = `<b>Google Maps could not load.</b><p class="hint">Check that your API key is valid, billing is enabled, and Maps JavaScript API is turned on.</p>`;
+      }
   }
 }
 

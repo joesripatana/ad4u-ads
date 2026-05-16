@@ -573,6 +573,14 @@ function getGoogleMapsApiKey() {
   return window.AD4U_GOOGLE_MAPS_API_KEY || localStorage.getItem(GOOGLE_MAPS_KEY_STORAGE) || "";
 }
 
+function escapeAttribute(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function loadGoogleMapsApi() {
   if (window.google?.maps) return Promise.resolve(window.google.maps);
   if (googleMapsLoader) return googleMapsLoader;
@@ -600,22 +608,32 @@ function loadGoogleMapsApi() {
   return googleMapsLoader;
 }
 
-function promptForGoogleMapsApiKey() {
-  const current = getGoogleMapsApiKey();
-  const nextKey = window.prompt("Paste your Google Maps JavaScript API key.", current || "");
-  if (nextKey === null) return;
-  if (!nextKey.trim()) {
-    localStorage.removeItem(GOOGLE_MAPS_KEY_STORAGE);
-    googleMapsLoader = null;
-    state.googleMapsStatus = GOOGLE_MAPS_STATUS.missing;
-    toast("Google Maps API key removed from this browser.");
-    render();
+function resetGoogleMapsRuntime() {
+  googleMapsLoader = null;
+  googleScreenMap = null;
+  googleScreenMarkers = [];
+}
+
+function saveGoogleMapsApiKey(form) {
+  const field = form?.querySelector("[data-google-key-input]");
+  const nextKey = field?.value?.trim() || "";
+  if (!nextKey) {
+    updateMapStatus("Enter a Google Maps JavaScript API key before saving.", "warning");
+    field?.focus();
     return;
   }
-  localStorage.setItem(GOOGLE_MAPS_KEY_STORAGE, nextKey.trim());
-  googleMapsLoader = null;
+  localStorage.setItem(GOOGLE_MAPS_KEY_STORAGE, nextKey);
+  resetGoogleMapsRuntime();
   state.googleMapsStatus = GOOGLE_MAPS_STATUS.loading;
   toast("Google Maps API key saved in this browser.");
+  render();
+}
+
+function removeGoogleMapsApiKey() {
+  localStorage.removeItem(GOOGLE_MAPS_KEY_STORAGE);
+  resetGoogleMapsRuntime();
+  state.googleMapsStatus = GOOGLE_MAPS_STATUS.missing;
+  toast("Google Maps API key removed from this browser.");
   render();
 }
 
@@ -2876,14 +2894,28 @@ function screensSelectedFirst(screens) {
 function renderMap(screens) {
   const hasApiKey = Boolean(getGoogleMapsApiKey());
   const mapStatus = state.googleMapsStatus || (hasApiKey ? GOOGLE_MAPS_STATUS.loading : GOOGLE_MAPS_STATUS.missing);
+  const savedKey = escapeAttribute(getGoogleMapsApiKey());
   return `
     <div class="map-wrap google-map-shell">
       <div class="map-toolbar">
         <div class="map-label">Google Maps live screen view</div>
         <div class="map-tools">
-          ${currentUser()?.role === "super_admin" ? `<button class="btn small" type="button" data-set-google-key>${hasApiKey ? "Change Google Maps API key" : "Add Google Maps API key"}</button>` : ""}
+          ${currentUser()?.role === "super_admin" ? `
+            <form class="map-key-panel" data-google-key-form>
+              <input
+                class="map-key-input"
+                type="password"
+                placeholder="Paste Google Maps JavaScript API key"
+                value="${savedKey}"
+                data-google-key-input
+              />
+              <button class="btn small" type="submit" data-save-google-key>${hasApiKey ? "Save key" : "Add key"}</button>
+              ${hasApiKey ? `<button class="btn small ghost" type="button" data-remove-google-key>Remove</button>` : ""}
+            </form>
+          ` : ""}
         </div>
       </div>
+      ${currentUser()?.role === "super_admin" ? `<div class="map-key-hint">Saved only in this browser. Use the same key on each admin device that needs Google Maps.</div>` : ""}
       <div class="map-status" data-map-status data-tone="${hasApiKey ? "neutral" : "warning"}" ${!state.googleMapsStatus && hasApiKey ? "hidden" : ""}>${mapStatus}</div>
       <div class="google-map-canvas" id="screenMap" data-screen-map></div>
       <div class="map-fallback" data-map-fallback ${hasApiKey ? "hidden" : ""}>
@@ -3580,7 +3612,11 @@ function bindCommon() {
   document.querySelectorAll("[data-language]").forEach((button) => button.addEventListener("click", () => setLanguage(button.dataset.language)));
   document.querySelectorAll("[data-route]").forEach((button) => button.addEventListener("click", () => setRoute(button.dataset.route)));
   document.querySelector("[data-update-now]")?.addEventListener("click", () => requestUpdateNow());
-  document.querySelector("[data-set-google-key]")?.addEventListener("click", promptForGoogleMapsApiKey);
+  document.querySelector("[data-google-key-form]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveGoogleMapsApiKey(event.currentTarget);
+  });
+  document.querySelector("[data-remove-google-key]")?.addEventListener("click", () => removeGoogleMapsApiKey());
   document.querySelector("[data-logout]")?.addEventListener("click", logout);
   document.querySelector("#phoneForm")?.addEventListener("submit", (event) => {
     event.preventDefault();

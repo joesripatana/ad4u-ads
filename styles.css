@@ -500,7 +500,7 @@ button:disabled {
   inset: 14px 14px auto 14px;
   z-index: 3;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   flex-wrap: nowrap;
   gap: 12px;
@@ -509,16 +509,40 @@ button:disabled {
 
 .map-tools {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   margin-left: auto;
   flex: 0 0 auto;
   pointer-events: auto;
 }
 
+.map-key-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(100%, 620px);
+}
+
+.map-key-input {
+  width: min(320px, 42vw);
+  min-height: 38px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--text);
+}
+
+.map-toolbar .map-key-panel .btn.ghost {
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--text);
+  border-color: var(--line);
+  box-shadow: none;
+}
+
 .map-label {
   flex: 1 1 auto;
   min-width: 0;
-  max-width: calc(100% - 220px);
+  max-width: min(320px, 38%);
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -535,9 +559,21 @@ button:disabled {
   min-height: 520px;
 }
 
+.map-key-hint {
+  position: absolute;
+  top: 62px;
+  left: 14px;
+  z-index: 3;
+  max-width: calc(100% - 28px);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
 .map-status {
   position: absolute;
-  top: 66px;
+  top: 88px;
   left: 14px;
   right: 14px;
   z-index: 3;
@@ -570,7 +606,7 @@ button:disabled {
 
 .map-fallback-copy {
   position: absolute;
-  top: 128px;
+  top: 152px;
   left: 14px;
   z-index: 2;
   max-width: min(420px, calc(100% - 28px));
@@ -592,15 +628,28 @@ button:disabled {
 
   .map-tools {
     width: 100%;
-    justify-content: flex-end;
+    justify-content: flex-start;
+  }
+
+  .map-key-panel {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .map-key-input {
+    width: 100%;
   }
 
   .map-status {
-    top: 96px;
+    top: 146px;
   }
 
   .map-fallback-copy {
-    top: 142px;
+    top: 198px;
+  }
+
+  .map-key-hint {
+    top: 112px;
   }
 }
 

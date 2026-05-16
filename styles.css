@@ -502,7 +502,7 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 12px;
   pointer-events: none;
 }
@@ -511,15 +511,22 @@ button:disabled {
   display: flex;
   gap: 8px;
   margin-left: auto;
+  flex: 0 0 auto;
   pointer-events: auto;
 }
 
 .map-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 220px);
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 9px 11px;
   font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   pointer-events: auto;
 }
 
@@ -563,7 +570,7 @@ button:disabled {
 
 .map-fallback-copy {
   position: absolute;
-  top: 108px;
+  top: 128px;
   left: 14px;
   z-index: 2;
   max-width: min(420px, calc(100% - 28px));
@@ -571,6 +578,30 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
+}
+
+@media (max-width: 900px) {
+  .map-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .map-label {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .map-tools {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .map-status {
+    top: 96px;
+  }
+
+  .map-fallback-copy {
+    top: 142px;
+  }
 }
 
 .pin {

@@ -85,6 +85,7 @@ const DISTRICTS_BY_PROVINCE = {
 const seedState = {
   currentUserId: "u1",
   route: "dashboard",
+  managedScreenId: null,
   authMode: "login",
   language: "",
   selectedScreens: [],
@@ -209,18 +210,43 @@ function applyPlayerDeepLink() {
 
 function loadState() {
   const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) return hydrateState(structuredClone(seedState));
+  if (!saved) return hydrateState(cloneState(seedState));
   try {
-    return hydrateState({ ...structuredClone(seedState), ...JSON.parse(saved) });
-  } catch {
-    return structuredClone(seedState);
+    const parsed = JSON.parse(saved);
+    const savedState = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    return hydrateState({ ...cloneState(seedState), ...savedState });
+  } catch (error) {
+    console.warn("AD4U saved state could not be loaded. Starting with defaults.", error);
+    return hydrateState(cloneState(seedState));
   }
 }
 
+function cloneState(value) {
+  if (typeof structuredClone === "function") return structuredClone(value);
+  return JSON.parse(JSON.stringify(value));
+}
+
+function arrayOrFallback(value, fallback = []) {
+  return Array.isArray(value) ? value : cloneState(fallback);
+}
+
+function objectArrayOrFallback(value, fallback = []) {
+  const items = arrayOrFallback(value, fallback).filter((item) => item && typeof item === "object");
+  return items.length ? items : cloneState(fallback);
+}
+
 function hydrateState(loaded) {
+  loaded = loaded && typeof loaded === "object" ? loaded : cloneState(seedState);
+  loaded.users = objectArrayOrFallback(loaded.users, seedState.users);
+  loaded.screens = objectArrayOrFallback(loaded.screens, seedState.screens);
+  loaded.adverts = objectArrayOrFallback(loaded.adverts, seedState.adverts);
+  loaded.cart = objectArrayOrFallback(loaded.cart, seedState.cart);
+  loaded.orders = objectArrayOrFallback(loaded.orders, seedState.orders);
+  loaded.playbackLogs = objectArrayOrFallback(loaded.playbackLogs, seedState.playbackLogs);
+  loaded.selectedScreens = arrayOrFallback(loaded.selectedScreens, seedState.selectedScreens);
   loaded.language ||= detectDefaultLanguage();
   seedState.screens.forEach((seedScreen) => {
-    if (!loaded.screens.some((screen) => screen.tabletId === seedScreen.tabletId)) loaded.screens.push(structuredClone(seedScreen));
+    if (!loaded.screens.some((screen) => screen.tabletId === seedScreen.tabletId)) loaded.screens.push(cloneState(seedScreen));
   });
   loaded.screens = loaded.screens.map((screen) => {
     const seeded = seedState.screens.find((item) => item.id === screen.id);
@@ -230,8 +256,10 @@ function hydrateState(loaded) {
       width: Number(screen.width || seeded?.width || DEFAULT_SCREEN_WIDTH),
       height: Number(screen.height || seeded?.height || DEFAULT_SCREEN_HEIGHT),
       photos: screen.photos?.length ? screen.photos : seeded?.photos || [],
+      tags: arrayOrFallback(screen.tags, seeded?.tags || []),
       tierPricing: screen.tierPricing || seeded?.tierPricing || defaultTierPricing(screen.rate),
-      defaultAdverts: screen.defaultAdverts || seeded?.defaultAdverts || [],
+      rateBands: objectArrayOrFallback(screen.rateBands, seeded?.rateBands || defaultRateBands(screen.rate || seeded?.rate || 150)),
+      defaultAdverts: arrayOrFallback(screen.defaultAdverts, seeded?.defaultAdverts || []),
       latitude: coordinates.latitude,
       longitude: coordinates.longitude,
       x: coordinates.x,
@@ -241,7 +269,8 @@ function hydrateState(loaded) {
   loaded.moderationRules = loaded.moderationRules?.length ? loaded.moderationRules : [...seedState.moderationRules];
   loaded.houseAdvert = { ...seedState.houseAdvert, ...(loaded.houseAdvert || {}) };
   loaded.houseAdvert.id ||= "house-seed";
-  loaded.houseAdverts = loaded.houseAdverts?.length ? loaded.houseAdverts : [loaded.houseAdvert];
+  loaded.houseAdverts = arrayOrFallback(loaded.houseAdverts, [loaded.houseAdvert]);
+  loaded.houseAdverts = loaded.houseAdverts.length ? loaded.houseAdverts : [loaded.houseAdvert];
   loaded.houseAdverts = loaded.houseAdverts.map((advert, index) => ({ ...advert, id: advert.id || `house-${index}` }));
   loaded.users = loaded.users.map((user) => ({
     ...user,
@@ -260,6 +289,8 @@ function hydrateState(loaded) {
   loaded.activeBookingScreenId = null;
   loaded.selectedSlots = {};
   loaded.photoIndex ||= {};
+  loaded.orders = loaded.orders.map((order) => ({ ...order, items: arrayOrFallback(order.items) }));
+  loaded.cart = loaded.cart.map((item) => ({ ...item, items: arrayOrFallback(item.items) }));
   return loaded;
 }
 
@@ -703,6 +734,16 @@ function defaultTierPricing(rate) {
   return { Mon: rate, Tue: rate, Wed: rate, Thu: rate, Fri: rate, Sat: rate, Sun: rate };
 }
 
+function defaultRateBands(rate) {
+  const base = Number(rate || 150);
+  return [
+    { id: "peak-am", label: "Morning peak", type: "peak", start: "07:00", end: "10:00", rate: Math.round(base * 1.35) },
+    { id: "standard", label: "Standard hours", type: "standard", start: "10:00", end: "17:00", rate: base },
+    { id: "peak-pm", label: "Evening peak", type: "peak", start: "17:00", end: "21:00", rate: Math.round(base * 1.45) },
+    { id: "offpeak", label: "Off-peak", type: "offpeak", start: "21:00", end: "07:00", rate: Math.max(1, Math.round(base * 0.7)) }
+  ];
+}
+
 function normalizeProvinceName(value = "") {
   const trimmed = value.trim();
   if (!trimmed) return "";
@@ -759,6 +800,7 @@ function setRoute(route) {
   window.clearInterval(playerCountdownTimer);
   if (route === "player" && state.route !== "player") state.previousRoute = state.route;
   if (route !== state.route && state.route === "book") clearBookingDraft();
+  if (route !== "screenManage") state.managedScreenId = null;
   if (isCustomer() && route !== "profile" && route !== "customerDashboard" && !customerCanBook()) {
     state.route = "profile";
     saveState();
@@ -1695,6 +1737,16 @@ function toggleScreen(screenId) {
   render();
 }
 
+function manageScreen(screenId) {
+  const screen = state.screens.find((item) => item.id === screenId);
+  if (!screen) return;
+  state.managedScreenId = screenId;
+  state.selectedScreens = [screenId];
+  state.route = "screenManage";
+  saveState();
+  render();
+}
+
 function bookScreen(screenId) {
   if (!customerCanBook()) {
     state.route = "profile";
@@ -1713,11 +1765,9 @@ function bookScreen(screenId) {
 }
 
 function openPlayer(screenId) {
-  state.playerScreenId = screenId;
-  state.previousRoute = state.route === "player" ? state.previousRoute || "book" : state.route;
-  state.route = "player";
-  saveState();
-  render();
+  const screen = state.screens.find((item) => item.id === screenId);
+  if (!screen) return;
+  window.open(playerUrl(screen), "_blank", "noopener,noreferrer");
 }
 
 function playerUrl(screen) {
@@ -1785,8 +1835,33 @@ function slotDate(slot) {
   return /^\d{4}-\d{2}-\d{2}$/.test(first) ? first : null;
 }
 
+function slotTimeValue(slot = "") {
+  const match = slot.match(/(\d{2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function timeToMinutes(value = "") {
+  const match = value.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function timeInRange(minutes, start, end) {
+  if (minutes === null || start === null || end === null) return false;
+  if (start === end) return true;
+  return start < end ? minutes >= start && minutes < end : minutes >= start || minutes < end;
+}
+
+function rateBandForSlot(screen, slot) {
+  const minutes = slotTimeValue(slot);
+  return (screen.rateBands || []).find((band) => timeInRange(minutes, timeToMinutes(band.start), timeToMinutes(band.end)));
+}
+
 function slotPrice(screen, slotOrDate) {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(slotOrDate) ? slotOrDate : slotDate(slotOrDate);
+  const band = rateBandForSlot(screen, slotOrDate);
+  if (band) return Number(band.rate || screen.rate);
   if (!date) return screen.rate;
   const day = dayLabel(date);
   return Number(screen.tierPricing?.[day] ?? screen.rate);
@@ -1982,6 +2057,31 @@ function screenPerformanceRows(filter = networkFilters) {
     .sort((a, b) => b.impressions - a.impressions || b.bookedSlots - a.bookedSlots);
 }
 
+function screenPerformanceFor(screen) {
+  return screenPerformanceRows({ province: "All", city: "All" }).find((row) => row.screen.id === screen.id) || {
+    screen,
+    capacity: capacityForScreen(screen),
+    bookedSlots: 0,
+    impressions: 0,
+    liveSeconds: 0,
+    revenue: 0,
+    campaigns: 0,
+    ctr: 0,
+    completion: 0,
+    viewability: screen.status === "online" ? 90 : 0
+  };
+}
+
+function stableScreenCount(screen, max = 9) {
+  const seed = [...screen.id].reduce((sum, char, index) => sum + char.charCodeAt(0) * (index + 1), 0);
+  return screen.status === "online" ? (seed % max) + 1 : 0;
+}
+
+function activePaidAdvertForScreen(screen) {
+  const current = currentSlotKey();
+  return state.orders.find((order) => order.status === "paid" && order.items.some((item) => item.screenId === screen.id && item.slots.includes(current)));
+}
+
 function advertHistoryRows(filter = {}) {
   const nowSlot = currentSlotKey();
   const rows = [];
@@ -2087,6 +2187,53 @@ function updateTierPricing(form) {
   screen.rate = Number(form.Mon.value || screen.rate);
   saveState();
   toast(`${screen.name} tier pricing updated.`);
+}
+
+function updateRateBands(form) {
+  const screen = state.screens.find((item) => item.id === form.screenId.value);
+  if (!screen) return;
+  screen.rateBands = Array.from({ length: 5 }, (_, index) => ({
+    id: `band-${index}`,
+    label: form[`label-${index}`].value.trim(),
+    type: form[`type-${index}`].value,
+    start: form[`start-${index}`].value,
+    end: form[`end-${index}`].value,
+    rate: Number(form[`rate-${index}`].value || screen.rate)
+  })).filter((band) => band.label && band.start && band.end && band.rate);
+  saveState();
+  toast(`${screen.name} time band pricing updated.`);
+}
+
+function updateScreenSettings(form) {
+  const screen = state.screens.find((item) => item.id === form.screenId.value);
+  if (!screen) return;
+  const tabletId = form.tabletId.value.trim();
+  const duplicate = state.screens.find((item) => item.id !== screen.id && item.tabletId.toLowerCase() === tabletId.toLowerCase());
+  if (duplicate) return toast("Tablet ID already exists. Use a unique tablet ID for each screen.");
+  const province = normalizeProvinceName(form.province.value);
+  const city = normalizeDistrictName(province, form.city.value);
+  screen.name = form.name.value.trim();
+  screen.tabletId = tabletId;
+  screen.province = province;
+  screen.city = city;
+  screen.venue = form.venue.value.trim();
+  screen.status = form.status.value;
+  screen.rate = Number(form.rate.value || screen.rate);
+  screen.brightness = Math.max(0, Math.min(100, Number(form.brightness.value || screen.brightness)));
+  screen.width = Number(form.width.value || screen.width);
+  screen.height = Number(form.height.value || screen.height);
+  screen.tags = form.tags.value.split(",").map((tag) => tag.trim()).filter(Boolean);
+  const coordinates = normalizedCoordinatesForScreen({
+    ...screen,
+    latitude: Number(form.latitude.value),
+    longitude: Number(form.longitude.value)
+  });
+  screen.latitude = coordinates.latitude;
+  screen.longitude = coordinates.longitude;
+  screen.x = coordinates.x;
+  screen.y = coordinates.y;
+  saveState();
+  toast(`${screen.name} settings saved.`);
 }
 
 function addScreen(form) {
@@ -2304,6 +2451,7 @@ function renderRoute() {
     history: renderHistory,
     orders: renderOrders,
     screens: renderScreensAdmin,
+    screenManage: renderScreenManage,
     adverts: renderAdvertsAdmin,
     team: renderTeam
   };
@@ -2874,8 +3022,10 @@ function realAndroidScreen() {
 }
 
 function showRealAndroidScreen() {
+  const screen = realAndroidScreen();
   filters.province = "Bangkok";
   filters.text = "TAB-BKK-REAL-001";
+  if (screen) state.selectedScreens = [screen.id];
   clearBookingDraft();
   saveState();
   render();
@@ -2965,6 +3115,81 @@ function renderScreenCard(screen, options = {}) {
       <div class="row"><span class="meta">${screen.tabletId} - last seen ${screen.lastSeen}</span><button class="btn small" data-screen="${screen.id}">${selected ? "Selected" : "Select"}</button></div>
       <div class="actions"><button class="btn small" data-screen="${screen.id}">View details</button><button class="btn small" data-player="${screen.id}">Open player</button><button class="btn small" data-copy-player="${screen.id}">Copy player URL</button><button class="btn small primary" data-book-screen="${screen.id}">Book</button></div>
     </article>
+  `;
+}
+
+function renderScreenSummaryPanel(screen) {
+  if (!screen) {
+    return `<section class="panel screen-empty-panel"><h2>Select a screen</h2><p class="hint">Click any map pin or screen row to inspect status, stats, player URL, and management actions.</p></section>`;
+  }
+  const perf = screenPerformanceFor(screen);
+  const historyRows = advertHistoryRows({ screenId: screen.id });
+  const totals = historyTotals(historyRows);
+  const activeOrder = activePaidAdvertForScreen(screen);
+  const onlineBookers = stableScreenCount(screen);
+  const capacity = perf.capacity;
+  const capacityTone = capacityStatus(capacity.percent);
+  return `
+    <section class="panel screen-inspector">
+      <div class="screen-head">
+        <div>
+          <span class="badge ${screen.status === "online" ? "ok" : screen.status === "warning" ? "warn" : "bad"}">${screen.status}</span>
+          <h2>${screen.name}</h2>
+          <p class="hint">${screen.tabletId} - ${screen.city}, ${screen.province}</p>
+        </div>
+        ${state.route === "screenManage" ? "" : `<button class="btn primary" data-manage-screen="${screen.id}">Manage</button>`}
+      </div>
+      <div class="screen-status-grid">
+        <div><span>Status</span><b>${screen.status}</b><small>Last seen ${screen.lastSeen}</small></div>
+        <div><span>Paid ad active</span><b>${activeOrder ? "Yes" : "No"}</b><small>${activeOrder ? activeOrder.id : "No paid slot at this moment"}</small></div>
+        <div><span>Booking viewers</span><b>${onlineBookers}</b><small>people on slot page now</small></div>
+        <div><span>Capacity</span><b>${capacity.percent.toFixed(1)}%</b><small class="${capacityTone.className}">${capacity.booked.toLocaleString()} / ${capacity.total.toLocaleString()} weekly slots</small></div>
+      </div>
+      <div class="screen-stat-grid">
+        <div class="stat"><b>${perf.impressions.toLocaleString()}</b><span>views / impressions</span></div>
+        <div class="stat"><b>${money(perf.revenue)}</b><span>revenue</span></div>
+        <div class="stat"><b>${totals.bookedSlots.toLocaleString()}</b><span>booked slots</span></div>
+        <div class="stat"><b>${perf.campaigns}</b><span>paid campaigns</span></div>
+        <div class="stat"><b>${formatDuration(perf.liveSeconds)}</b><span>live playback</span></div>
+        <div class="stat"><b>${perf.viewability.toFixed(0)}%</b><span>viewability</span></div>
+      </div>
+      <div class="screen-url-box">
+        <span>Screen player URL</span>
+        <code>${playerUrl(screen)}</code>
+        <div class="actions"><button class="btn small" data-player="${screen.id}">Open player</button><button class="btn small" data-copy-player="${screen.id}">Copy URL</button></div>
+      </div>
+      <div class="badges">
+        ${screen.tags.map((tag) => `<span class="badge">${tag}</span>`).join("")}
+        <span class="badge">${money(screen.rate)}/15s base</span>
+        <span class="badge">${screenOrientation(screen)}</span>
+        <span class="badge">${screen.width}x${screen.height}</span>
+        <span class="badge">Brightness ${screen.brightness}%</span>
+      </div>
+    </section>
+  `;
+}
+
+function renderRateBandForm(screen) {
+  const bands = objectArrayOrFallback(screen.rateBands, defaultRateBands(screen.rate));
+  const slots = [...bands];
+  while (slots.length < 5) slots.push({ id: `band-${slots.length}`, label: "", type: "standard", start: "00:00", end: "00:00", rate: screen.rate });
+  return `
+    <form class="rate-band-form" data-rate-band-form>
+      <input type="hidden" name="screenId" value="${screen.id}" />
+      <div class="rate-band-head"><b>Peak, standard, and off-peak prices</b><span class="meta">Matching time bands override the daily base price.</span></div>
+      ${slots.map((band, index) => `
+        <div class="rate-band-row">
+          <input name="label-${index}" placeholder="Label" value="${band.label || ""}" />
+          <select name="type-${index}">
+            ${["peak", "standard", "offpeak"].map((type) => `<option value="${type}" ${band.type === type ? "selected" : ""}>${type}</option>`).join("")}
+          </select>
+          <input name="start-${index}" type="time" value="${band.start || "00:00"}" />
+          <input name="end-${index}" type="time" value="${band.end || "00:00"}" />
+          <input name="rate-${index}" type="number" min="1" value="${band.rate || screen.rate}" />
+        </div>
+      `).join("")}
+      <button class="btn primary" type="submit">Save time bands</button>
+    </form>
   `;
 }
 
@@ -3355,6 +3580,7 @@ function renderOrders() {
 function renderScreensAdmin() {
   const realScreen = realAndroidScreen();
   const visibleScreens = screensSelectedFirst(filteredScreens());
+  const selectedScreen = state.screens.find((screen) => screen.id === state.selectedScreens[0]) || visibleScreens[0];
   return `
     ${renderHeader("Screens", "Add, identify, monitor, and manage every tablet display location.", `<button class="btn primary" data-modal="screen">Add screen</button>`)}
     ${realScreen ? `<section class="panel real-screen-banner">
@@ -3367,17 +3593,69 @@ function renderScreensAdmin() {
     </section>` : ""}
     <div class="grid two">
       <section class="panel">${renderFilters()}${renderMap(visibleScreens)}</section>
-      <section class="panel"><div class="screen-list">${visibleScreens.map((screen) => `
-        <article class="screen-card ${state.selectedScreens.includes(screen.id) ? "selected" : ""}">
-          <div class="screen-head"><div><b>${screen.name}</b><div class="meta">${screen.tabletId} - ${screen.city}, ${screen.province}</div></div><span class="badge ${screen.status === "online" ? "ok" : screen.status === "warning" ? "warn" : "bad"}">${screen.status}</span></div>
-          <div class="badges"><span class="badge">${money(screen.rate)}/15s</span><span class="badge">${screenOrientation(screen)}</span><span class="badge">${screen.width}x${screen.height}</span><span class="badge">Brightness ${screen.brightness}%</span><span class="badge">${screen.venue}</span></div>
-          <p class="hint player-url">${playerUrl(screen)}</p>
+      <div class="screen-side-panel">
+        ${renderScreenSummaryPanel(selectedScreen)}
+        <section class="panel"><div class="screen-list compact-screen-list">${visibleScreens.map((screen) => renderScreenCard(screen)).join("")}</div></section>
+      </div>
+    </div>
+  `;
+}
+
+function renderScreenManage() {
+  const screen = state.screens.find((item) => item.id === state.managedScreenId) || state.screens.find((item) => item.id === state.selectedScreens[0]) || state.screens[0];
+  if (!screen) return `${renderHeader("Manage screen", "No screen found.", `<button class="btn" data-route="screens">Back to screens</button>`)}`;
+  state.managedScreenId = screen.id;
+  const perf = screenPerformanceFor(screen);
+  return `
+    ${renderHeader(`Manage ${screen.name}`, "Edit screen identity, status, prices, peak hours, defaults, and playback settings.", `<button class="btn" data-route="screens">Back to screens</button><button class="btn" data-player="${screen.id}">Open player</button><button class="btn primary" data-copy-player="${screen.id}">Copy player URL</button>`)}
+    <div class="grid two manage-grid">
+      <section class="panel">
+        <div class="screen-head"><div><h2>Essential information</h2><p class="hint">${screen.tabletId} - ${playerUrl(screen)}</p></div><span class="badge ${screen.status === "online" ? "ok" : screen.status === "warning" ? "warn" : "bad"}">${screen.status}</span></div>
+        <form class="form screen-settings-form" data-screen-settings-form>
+          <input type="hidden" name="screenId" value="${screen.id}" />
+          <div class="grid two even">
+            <div class="field"><label>Screen name</label><input name="name" value="${screen.name}" required /></div>
+            <div class="field"><label>Tablet ID</label><input name="tabletId" value="${screen.tabletId}" required /></div>
+          </div>
+          <div class="grid two even">
+            <div class="field"><label>Province</label><input name="province" value="${screen.province}" required /></div>
+            <div class="field"><label>City / district</label><input name="city" value="${screen.city}" required /></div>
+          </div>
+          <div class="field"><label>Venue</label><input name="venue" value="${screen.venue}" required /></div>
+          <div class="grid three">
+            <div class="field"><label>Status</label><select name="status">${["online", "warning", "offline"].map((status) => `<option value="${status}" ${screen.status === status ? "selected" : ""}>${status}</option>`).join("")}</select></div>
+            <div class="field"><label>Base price / 15s</label><input name="rate" type="number" min="1" value="${screen.rate}" /></div>
+            <div class="field"><label>Brightness</label><input name="brightness" type="number" min="0" max="100" value="${screen.brightness}" /></div>
+          </div>
+          <div class="grid two even">
+            <div class="field"><label>Latitude</label><input name="latitude" type="number" step="0.000001" value="${screen.latitude}" /></div>
+            <div class="field"><label>Longitude</label><input name="longitude" type="number" step="0.000001" value="${screen.longitude}" /></div>
+          </div>
+          <div class="grid two even">
+            <div class="field"><label>Width</label><input name="width" type="number" min="1" value="${screen.width}" /></div>
+            <div class="field"><label>Height</label><input name="height" type="number" min="1" value="${screen.height}" /></div>
+          </div>
+          <div class="field"><label>Tags</label><input name="tags" value="${screen.tags.join(", ")}" /></div>
+          <button class="btn primary" type="submit">Save screen settings</button>
+        </form>
+      </section>
+      ${renderScreenSummaryPanel(screen)}
+    </div>
+    <section class="panel manage-pricing-panel">
+      <div class="grid two even">
+        <div>
+          <h2>Daily base pricing</h2>
           ${renderTierPricingForm(screen)}
-          ${renderScreenDefaults(screen)}
-          ${renderScreenHistory(screen)}
-          <div class="actions"><button class="btn small" data-pair="${screen.id}">Pair/check in</button><button class="btn small" data-player="${screen.id}">Open player</button><button class="btn small" data-copy-player="${screen.id}">Copy player URL</button></div>
-        </article>
-      `).join("")}</div></section>
+        </div>
+        <div>
+          <h2>Time band pricing</h2>
+          ${renderRateBandForm(screen)}
+        </div>
+      </div>
+    </section>
+    <div class="grid two manage-grid">
+      <section class="panel">${renderScreenDefaults(screen)}</section>
+      <section class="panel">${renderScreenHistory(screen)}</section>
     </div>
   `;
 }
@@ -3643,6 +3921,7 @@ function bindCommon() {
   document.querySelectorAll("[data-download-sticker]").forEach((button) => button.addEventListener("click", () => downloadSticker(button.dataset.downloadSticker)));
   document.querySelector("[data-download-all-stickers]")?.addEventListener("click", downloadAllStickers);
   document.querySelectorAll("[data-screen]").forEach((button) => button.addEventListener("click", () => toggleScreen(button.dataset.screen)));
+  document.querySelectorAll("[data-manage-screen]").forEach((button) => button.addEventListener("click", () => manageScreen(button.dataset.manageScreen)));
   document.querySelectorAll("[data-book-screen]").forEach((button) => button.addEventListener("click", () => bookScreen(button.dataset.bookScreen)));
   document.querySelectorAll("[data-edit-slots]").forEach((button) => button.addEventListener("click", () => editSlots(button.dataset.editSlots, state.selectedSlots[button.dataset.editSlots] || cartSlotsFor(button.dataset.editSlots))));
   document.querySelectorAll("[data-edit-cart]").forEach((button) => button.addEventListener("click", () => {
@@ -3711,6 +3990,14 @@ function bindCommon() {
     event.preventDefault();
     updateTierPricing(event.target);
   }));
+  document.querySelectorAll("[data-rate-band-form]").forEach((form) => form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    updateRateBands(event.target);
+  }));
+  document.querySelectorAll("[data-screen-settings-form]").forEach((form) => form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    updateScreenSettings(event.target);
+  }));
   document.querySelector("[data-add-cart]")?.addEventListener("click", (event) => addToCart(event.target.dataset.addCart));
   document.querySelector("[data-go-live]")?.addEventListener("click", makeBasketLive);
   document.querySelectorAll("[data-update-basket]").forEach((button) => button.addEventListener("click", () => addScreenSelectionToCart(button.dataset.updateBasket, currentBookingAdvert()?.id)));
@@ -3756,8 +4043,36 @@ function bindCommon() {
   initializeGoogleScreenMap();
 }
 
-applyPlayerDeepLink();
-render();
+function showStartupError(error) {
+  console.error("AD4U startup failed.", error);
+  const app = document.querySelector("#app");
+  if (!app) return;
+  app.innerHTML = `
+    <main class="auth-shell">
+      <section class="auth-card">
+        <img src="assets/ad4u-logo.png" alt="AD4U" class="auth-logo" />
+        <h1>AD4U could not load</h1>
+        <p class="hint">The saved browser data for this device looks damaged or too old for this version.</p>
+        <button class="btn primary" data-reset-ad4u type="button">Reset local AD4U data</button>
+      </section>
+    </main>
+  `;
+  document.querySelector("[data-reset-ad4u]")?.addEventListener("click", () => {
+    localStorage.removeItem(STORAGE_KEY);
+    window.location.reload();
+  });
+}
+
+function startApp() {
+  try {
+    applyPlayerDeepLink();
+    render();
+  } catch (error) {
+    showStartupError(error);
+  }
+}
+
+startApp();
 
 
 

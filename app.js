@@ -3629,7 +3629,6 @@ function renderScreensAdmin() {
       <section class="panel">${renderFilters()}${renderMap(visibleScreens)}</section>
       <div class="screen-side-panel">
         ${renderScreenSummaryPanel(selectedScreen)}
-        <section class="panel"><div class="screen-list compact-screen-list">${visibleScreens.map((screen) => renderScreenCard(screen)).join("")}</div></section>
       </div>
     </div>
   `;

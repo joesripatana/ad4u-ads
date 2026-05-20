@@ -726,10 +726,6 @@ button:disabled {
   min-width: 0;
 }
 
-.compact-screen-list {
-  max-height: 360px;
-}
-
 .booking-screen-list {
   max-height: none;
   overflow: visible;

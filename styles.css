@@ -1843,7 +1843,7 @@ button:disabled {
 
 .rate-band-row {
   display: grid;
-  grid-template-columns: minmax(120px, 1.4fr) minmax(96px, 0.8fr) minmax(92px, 0.7fr) minmax(92px, 0.7fr) minmax(86px, 0.7fr);
+  grid-template-columns: minmax(150px, 1.4fr) minmax(130px, 0.9fr) minmax(100px, 0.7fr) minmax(100px, 0.7fr);
   gap: 8px;
 }
 
@@ -1857,8 +1857,56 @@ button:disabled {
   background: white;
 }
 
+.traffic-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.traffic-pill {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.traffic-pill.high {
+  background: #dbe8ff;
+  color: #173f9b;
+}
+
+.traffic-pill.low {
+  background: #e8f7ee;
+  color: #17623d;
+}
+
+.traffic-pill.none {
+  background: #edf1f5;
+  color: #647082;
+}
+
 .week-slot:hover {
   background: #cfe5e2;
+}
+
+.week-slot.traffic-high {
+  background: #e5edff;
+  color: #1d4fb5;
+}
+
+.week-slot.traffic-low {
+  background: #e8f7ee;
+  color: #17623d;
+}
+
+.week-slot.traffic-none,
+.week-slot.unavailable {
+  background: #f0f2f5;
+  color: #7b8796;
+  cursor: not-allowed;
 }
 
 .week-slot.selected {

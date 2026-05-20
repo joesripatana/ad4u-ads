@@ -258,7 +258,7 @@ function hydrateState(loaded) {
       photos: screen.photos?.length ? screen.photos : seeded?.photos || [],
       tags: arrayOrFallback(screen.tags, seeded?.tags || []),
       tierPricing: screen.tierPricing || seeded?.tierPricing || defaultTierPricing(screen.rate),
-      rateBands: objectArrayOrFallback(screen.rateBands, seeded?.rateBands || defaultRateBands(screen.rate || seeded?.rate || 150)),
+      rateBands: normalizeTrafficBands(screen.rateBands || seeded?.rateBands, screen.rate || seeded?.rate || 150),
       defaultAdverts: arrayOrFallback(screen.defaultAdverts, seeded?.defaultAdverts || []),
       latitude: coordinates.latitude,
       longitude: coordinates.longitude,
@@ -735,13 +735,31 @@ function defaultTierPricing(rate) {
 }
 
 function defaultRateBands(rate) {
-  const base = Number(rate || 150);
   return [
-    { id: "peak-am", label: "Morning peak", type: "peak", start: "07:00", end: "10:00", rate: Math.round(base * 1.35) },
-    { id: "standard", label: "Standard hours", type: "standard", start: "10:00", end: "17:00", rate: base },
-    { id: "peak-pm", label: "Evening peak", type: "peak", start: "17:00", end: "21:00", rate: Math.round(base * 1.45) },
-    { id: "offpeak", label: "Off-peak", type: "offpeak", start: "21:00", end: "07:00", rate: Math.max(1, Math.round(base * 0.7)) }
+    { id: "high-am", label: "Morning high traffic", type: "high", start: "07:00", end: "10:00" },
+    { id: "low-day", label: "Low traffic", type: "low", start: "10:00", end: "17:00" },
+    { id: "high-pm", label: "Evening high traffic", type: "high", start: "17:00", end: "21:00" },
+    { id: "closed-night", label: "No traffic", type: "none", start: "21:00", end: "07:00" }
   ];
+}
+
+function normalizeTrafficBands(bands, highTrafficRate) {
+  const normalized = objectArrayOrFallback(bands, defaultRateBands(highTrafficRate)).map((band, index) => {
+    const legacyType = band.type === "peak" ? "high" : band.type === "standard" || band.type === "offpeak" ? "low" : band.type;
+    const type = ["high", "low", "none"].includes(legacyType) ? legacyType : "low";
+    return {
+      id: band.id || `traffic-${index}`,
+      label: band.label || trafficTypeLabel(type),
+      type,
+      start: band.start || "00:00",
+      end: band.end || "00:00"
+    };
+  });
+  return normalized.length ? normalized : defaultRateBands(highTrafficRate);
+}
+
+function trafficTypeLabel(type) {
+  return type === "high" ? "High traffic" : type === "low" ? "Low traffic" : "No traffic";
 }
 
 function normalizeProvinceName(value = "") {
@@ -1059,7 +1077,11 @@ function addToCart(advertId) {
     render();
     return toast("Complete profile and payment setup before adding bookings.");
   }
-  const items = Object.entries(state.selectedSlots || {}).map(([screenId, slots]) => ({ screenId, slots })).filter((item) => item.slots.length);
+  const items = Object.entries(state.selectedSlots || {}).map(([screenId, slots]) => {
+    const screen = state.screens.find((item) => item.id === screenId);
+    const bookableSlots = screen ? slots.filter((slot) => trafficForSlot(screen, slot).bookable) : [];
+    return { screenId, slots: bookableSlots };
+  }).filter((item) => item.slots.length);
   if (!advertId) return toast("Choose one advert first.");
   if (!items.length) return toast("Select at least one screen and one time slot.");
   const advert = state.adverts.find((a) => a.id === advertId);
@@ -1082,11 +1104,11 @@ function addScreenSelectionToCart(screenId, advertId) {
     render();
     return toast("Complete profile and payment setup before adding bookings.");
   }
-  const slots = state.selectedSlots[screenId] || [];
+  const screen = state.screens.find((item) => item.id === screenId);
+  const slots = (state.selectedSlots[screenId] || []).filter((slot) => screen && trafficForSlot(screen, slot).bookable);
   if (!advertId) return toast("Choose one advert first.");
   if (!slots.length) return toast("Select at least one slot for this screen.");
   const advert = state.adverts.find((a) => a.id === advertId);
-  const screen = state.screens.find((item) => item.id === screenId);
   if (!mediaMatchesScreen(advert, screen)) return toast(`${screen.name} requires ${screen.width}x${screen.height}. Upload exact-size media before booking.`);
   const existing = state.cart.find((item) => item.advertId === advertId && item.items.length === 1 && item.items[0].screenId === screenId);
   const item = { screenId, slots: [...slots] };
@@ -1858,13 +1880,21 @@ function rateBandForSlot(screen, slot) {
   return (screen.rateBands || []).find((band) => timeInRange(minutes, timeToMinutes(band.start), timeToMinutes(band.end)));
 }
 
+function trafficForSlot(screen, slot) {
+  const band = rateBandForSlot(screen, slot);
+  const type = band?.type || "high";
+  const highRate = Number(screen.rate || 0);
+  return {
+    band,
+    type,
+    label: trafficTypeLabel(type),
+    bookable: type !== "none",
+    price: type === "none" ? 0 : type === "low" ? Math.max(1, Math.round(highRate / 2)) : highRate
+  };
+}
+
 function slotPrice(screen, slotOrDate) {
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(slotOrDate) ? slotOrDate : slotDate(slotOrDate);
-  const band = rateBandForSlot(screen, slotOrDate);
-  if (band) return Number(band.rate || screen.rate);
-  if (!date) return screen.rate;
-  const day = dayLabel(date);
-  return Number(screen.tierPricing?.[day] ?? screen.rate);
+  return trafficForSlot(screen, slotOrDate).price;
 }
 
 function currentBookingAdvert() {
@@ -1952,18 +1982,24 @@ function weekRangeLabel(startDate) {
 }
 
 function capacityForScreen(screen, startDate = todayDate()) {
-  const dates = new Set(weekDates(startDate));
+  const dates = weekDates(startDate);
+  const dateSet = new Set(dates);
   const bookedSlots = new Set();
   state.orders.forEach((order) => {
     order.items.forEach((item) => {
       if (item.screenId !== screen.id) return;
       item.slots.forEach((slot) => {
-        if (dates.has(slotDate(slot))) bookedSlots.add(slot);
+        if (dateSet.has(slotDate(slot))) bookedSlots.add(slot);
       });
     });
   });
-  const totalSlots = 7 * 24 * 60 * 4;
-  const percent = Math.min(100, (bookedSlots.size / totalSlots) * 100);
+  let totalSlots = 0;
+  dates.forEach((date) => {
+    for (let seconds = 0; seconds < 24 * 60 * 60; seconds += 15) {
+      if (trafficForSlot(screen, `${date} ${formatTime(seconds)}`).bookable) totalSlots += 1;
+    }
+  });
+  const percent = totalSlots ? Math.min(100, (bookedSlots.size / totalSlots) * 100) : 0;
   return { booked: bookedSlots.size, total: totalSlots, percent };
 }
 
@@ -2192,16 +2228,15 @@ function updateTierPricing(form) {
 function updateRateBands(form) {
   const screen = state.screens.find((item) => item.id === form.screenId.value);
   if (!screen) return;
-  screen.rateBands = Array.from({ length: 5 }, (_, index) => ({
+  screen.rateBands = Array.from({ length: 8 }, (_, index) => ({
     id: `band-${index}`,
     label: form[`label-${index}`].value.trim(),
     type: form[`type-${index}`].value,
     start: form[`start-${index}`].value,
-    end: form[`end-${index}`].value,
-    rate: Number(form[`rate-${index}`].value || screen.rate)
-  })).filter((band) => band.label && band.start && band.end && band.rate);
+    end: form[`end-${index}`].value
+  })).filter((band) => band.label && band.start && band.end);
   saveState();
-  toast(`${screen.name} time band pricing updated.`);
+  toast(`${screen.name} traffic schedule updated.`);
 }
 
 function updateScreenSettings(form) {
@@ -2269,6 +2304,7 @@ function addScreen(form) {
     brightness: 80,
     width,
     height,
+    rateBands: defaultRateBands(Number(form.rate.value)),
     defaultAdverts: [],
     lastSeen: "new",
     tags: form.tags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
@@ -3146,7 +3182,7 @@ function renderScreenSummaryPanel(screen) {
       </div>
       <div class="badges">
         ${screen.tags.map((tag) => `<span class="badge">${tag}</span>`).join("")}
-        <span class="badge">${money(screen.rate)}/15s base</span>
+        <span class="badge">${money(screen.rate)}/15s high traffic</span>
         <span class="badge">${screenOrientation(screen)}</span>
         <span class="badge">${screen.width}x${screen.height}</span>
         <span class="badge">Brightness ${screen.brightness}%</span>
@@ -3156,25 +3192,32 @@ function renderScreenSummaryPanel(screen) {
 }
 
 function renderRateBandForm(screen) {
-  const bands = objectArrayOrFallback(screen.rateBands, defaultRateBands(screen.rate));
+  const bands = normalizeTrafficBands(screen.rateBands, screen.rate);
   const slots = [...bands];
-  while (slots.length < 5) slots.push({ id: `band-${slots.length}`, label: "", type: "standard", start: "00:00", end: "00:00", rate: screen.rate });
+  while (slots.length < 8) slots.push({ id: `band-${slots.length}`, label: "", type: "low", start: "00:00", end: "00:00" });
   return `
     <form class="rate-band-form" data-rate-band-form>
       <input type="hidden" name="screenId" value="${screen.id}" />
-      <div class="rate-band-head"><b>Peak, standard, and off-peak prices</b><span class="meta">Matching time bands override the daily base price.</span></div>
+      <div class="rate-band-head">
+        <b>Traffic schedule</b>
+        <span class="meta">High traffic is ${money(screen.rate)}/15s. Low traffic is ${money(Math.max(1, Math.round(screen.rate / 2)))}/15s. No traffic is hidden and unbookable.</span>
+      </div>
+      <div class="traffic-legend">
+        <span class="traffic-pill high">High traffic</span>
+        <span class="traffic-pill low">Low traffic</span>
+        <span class="traffic-pill none">No traffic</span>
+      </div>
       ${slots.map((band, index) => `
         <div class="rate-band-row">
           <input name="label-${index}" placeholder="Label" value="${band.label || ""}" />
           <select name="type-${index}">
-            ${["peak", "standard", "offpeak"].map((type) => `<option value="${type}" ${band.type === type ? "selected" : ""}>${type}</option>`).join("")}
+            ${["high", "low", "none"].map((type) => `<option value="${type}" ${band.type === type ? "selected" : ""}>${trafficTypeLabel(type)}</option>`).join("")}
           </select>
           <input name="start-${index}" type="time" value="${band.start || "00:00"}" />
           <input name="end-${index}" type="time" value="${band.end || "00:00"}" />
-          <input name="rate-${index}" type="number" min="1" value="${band.rate || screen.rate}" />
         </div>
       `).join("")}
-      <button class="btn primary" type="submit">Save time bands</button>
+      <button class="btn primary" type="submit">Save traffic schedule</button>
     </form>
   `;
 }
@@ -3469,12 +3512,17 @@ function renderSlotRow(screen, index, dates, bookedSet, selectedSet, basketSet) 
 
 function renderSlotCell(screen, slotDate, time, bookedSet, selectedSet, basketSet) {
   const slot = `${slotDate} ${time}`;
-  const price = slotPrice(screen, slotDate);
+  const traffic = trafficForSlot(screen, slot);
+  const price = traffic.price;
   const booked = bookedSet.has(slot);
   const selected = selectedSet.has(slot);
   const inBasket = basketSet.has(slot);
-  const title = booked ? `${slot} booked` : `${slot} available - ${money(price)}`;
-  return `<button class="week-slot ${booked ? "booked" : ""} ${selected ? "selected" : ""} ${inBasket ? "in-basket" : ""} ${time.endsWith(":00:00") ? "hour-start" : ""}" ${booked ? "disabled" : ""} data-slot="${screen.id}|${slot}" title="${title}"><span>${booked ? "Sold" : selected ? "Selected" : inBasket ? "In basket" : "Available"}</span><small>${money(price)}</small></button>`;
+  const unavailable = !traffic.bookable;
+  const disabled = booked || unavailable;
+  const title = unavailable ? `${slot} no traffic - unavailable` : booked ? `${slot} booked` : `${slot} ${traffic.label.toLowerCase()} - ${money(price)}`;
+  const label = unavailable ? "No traffic" : booked ? "Sold" : selected ? "Selected" : inBasket ? "In basket" : traffic.label;
+  const priceLabel = unavailable ? "Closed" : money(price);
+  return `<button class="week-slot traffic-${traffic.type} ${booked ? "booked" : ""} ${unavailable ? "unavailable" : ""} ${selected ? "selected" : ""} ${inBasket ? "in-basket" : ""} ${time.endsWith(":00:00") ? "hour-start" : ""}" ${disabled ? "disabled" : ""} data-slot="${screen.id}|${slot}" title="${title}"><span>${label}</span><small>${priceLabel}</small></button>`;
 }
 
 function formatTime(totalSeconds) {
@@ -3593,7 +3641,7 @@ function renderScreenManage() {
   state.managedScreenId = screen.id;
   const perf = screenPerformanceFor(screen);
   return `
-    ${renderHeader(`Manage ${screen.name}`, "Edit screen identity, status, prices, peak hours, defaults, and playback settings.", `<button class="btn" data-route="screens">Back to screens</button><button class="btn" data-player="${screen.id}">Open player</button><button class="btn primary" data-copy-player="${screen.id}">Copy player URL</button>`)}
+    ${renderHeader(`Manage ${screen.name}`, "Edit screen identity, status, high traffic price, traffic hours, defaults, and playback settings.", `<button class="btn" data-route="screens">Back to screens</button><button class="btn" data-player="${screen.id}">Open player</button><button class="btn primary" data-copy-player="${screen.id}">Copy player URL</button>`)}
     <div class="grid two manage-grid">
       <section class="panel">
         <div class="screen-head"><div><h2>Essential information</h2><p class="hint">${screen.tabletId} - ${playerUrl(screen)}</p></div><span class="badge ${screen.status === "online" ? "ok" : screen.status === "warning" ? "warn" : "bad"}">${screen.status}</span></div>
@@ -3610,7 +3658,7 @@ function renderScreenManage() {
           <div class="field"><label>Venue</label><input name="venue" value="${screen.venue}" required /></div>
           <div class="grid three">
             <div class="field"><label>Status</label><select name="status">${["online", "warning", "offline"].map((status) => `<option value="${status}" ${screen.status === status ? "selected" : ""}>${status}</option>`).join("")}</select></div>
-            <div class="field"><label>Base price / 15s</label><input name="rate" type="number" min="1" value="${screen.rate}" /></div>
+            <div class="field"><label>High traffic price / 15s</label><input name="rate" type="number" min="1" value="${screen.rate}" /></div>
             <div class="field"><label>Brightness</label><input name="brightness" type="number" min="0" max="100" value="${screen.brightness}" /></div>
           </div>
           <div class="grid two even">
@@ -3628,16 +3676,8 @@ function renderScreenManage() {
       ${renderScreenSummaryPanel(screen)}
     </div>
     <section class="panel manage-pricing-panel">
-      <div class="grid two even">
-        <div>
-          <h2>Daily base pricing</h2>
-          ${renderTierPricingForm(screen)}
-        </div>
-        <div>
-          <h2>Time band pricing</h2>
-          ${renderRateBandForm(screen)}
-        </div>
-      </div>
+      <h2>Traffic pricing and availability</h2>
+      ${renderRateBandForm(screen)}
     </section>
     <div class="grid two manage-grid">
       <section class="panel">${renderScreenDefaults(screen)}</section>

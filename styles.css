@@ -1819,6 +1819,14 @@ button:disabled {
   margin-top: 14px;
 }
 
+.settings-panel {
+  max-width: 760px;
+}
+
+.settings-form {
+  margin-top: 14px;
+}
+
 .rate-band-form {
   display: grid;
   gap: 9px;

@@ -2344,6 +2344,7 @@ function navItems() {
     ["stats", t("liveStats")],
     ["history", "History"],
     ["orders", t("orders")],
+    ["settings", "Settings"],
     ["team", t("teamRoles")]
   ];
   return user.role === "customer" ? customer : staff;
@@ -2453,6 +2454,7 @@ function renderRoute() {
     screens: renderScreensAdmin,
     screenManage: renderScreenManage,
     adverts: renderAdvertsAdmin,
+    settings: renderSettings,
     team: renderTeam
   };
   return (routes[state.route] || renderBooking)();
@@ -3044,34 +3046,18 @@ function screensSelectedFirst(screens) {
 function renderMap(screens) {
   const hasApiKey = Boolean(getGoogleMapsApiKey());
   const mapStatus = state.googleMapsStatus || (hasApiKey ? GOOGLE_MAPS_STATUS.loading : GOOGLE_MAPS_STATUS.missing);
-  const savedKey = escapeAttribute(getGoogleMapsApiKey());
   return `
     <div class="map-wrap google-map-shell">
       <div class="map-toolbar">
         <div class="map-label">Google Maps live screen view</div>
-        <div class="map-tools">
-          ${currentUser()?.role === "super_admin" ? `
-            <form class="map-key-panel" data-google-key-form>
-              <input
-                class="map-key-input"
-                type="password"
-                placeholder="Paste Google Maps JavaScript API key"
-                value="${savedKey}"
-                data-google-key-input
-              />
-              <button class="btn small" type="submit" data-save-google-key>${hasApiKey ? "Save key" : "Add key"}</button>
-              ${hasApiKey ? `<button class="btn small ghost" type="button" data-remove-google-key>Remove</button>` : ""}
-            </form>
-          ` : ""}
-        </div>
+        ${currentUser()?.role === "super_admin" ? `<button class="btn small" data-route="settings">Map settings</button>` : ""}
       </div>
-      ${currentUser()?.role === "super_admin" ? `<div class="map-key-hint">Saved only in this browser. Use the same key on each admin device that needs Google Maps.</div>` : ""}
       <div class="map-status" data-map-status data-tone="${hasApiKey ? "neutral" : "warning"}" ${!state.googleMapsStatus && hasApiKey ? "hidden" : ""}>${mapStatus}</div>
       <div class="google-map-canvas" id="screenMap" data-screen-map></div>
       <div class="map-fallback" data-map-fallback ${hasApiKey ? "hidden" : ""}>
         <div class="map-fallback-copy">
-          <b>${hasApiKey ? "Google Maps is loading..." : "Add your Google Maps JavaScript API key to unlock live zoom and pan."}</b>
-          <p class="hint">${hasApiKey ? "If the map still does not appear, check that Maps JavaScript API is enabled for your key." : "The old static pin view stays here as a fallback until the real map is turned on."}</p>
+          <b>${hasApiKey ? "Google Maps is loading..." : "Google Maps API key is not configured."}</b>
+          <p class="hint">${hasApiKey ? "If the map still does not appear, check that Maps JavaScript API is enabled for your key." : "Open Settings to add the key. Static pins remain available here."}</p>
         </div>
         ${screens.map((screen) => `<button class="pin ${state.selectedScreens.includes(screen.id) ? "selected" : ""}" style="left:${screen.x}%;top:${screen.y}%" title="${screen.name}" data-screen="${screen.id}"><span>${screen.province.slice(0, 2).toUpperCase()}</span></button>`).join("")}
       </div>
@@ -3726,6 +3712,40 @@ function renderAdvertsAdmin() {
           }).join("")}
         </tbody>
       </table>
+    </section>
+  `;
+}
+
+function renderSettings() {
+  if (!isStaff()) return `${renderHeader("Settings", "Only staff can change platform settings.", "")}<section class="panel"><p class="hint">Ask an admin for access.</p></section>`;
+  const hasApiKey = Boolean(getGoogleMapsApiKey());
+  const savedKey = escapeAttribute(getGoogleMapsApiKey());
+  return `
+    ${renderHeader("Settings", "Configure admin-only platform settings, integrations, and local browser keys.", "")}
+    <section class="panel settings-panel">
+      <div class="screen-head">
+        <div>
+          <h2>Google Maps</h2>
+          <p class="hint">Used for the live map on Screens. The key is saved only in this browser, so local, live, and other admin devices can each have a different saved key.</p>
+        </div>
+        <span class="badge ${hasApiKey ? "ok" : "warn"}">${hasApiKey ? "configured" : "missing"}</span>
+      </div>
+      <form class="form settings-form" data-google-key-form>
+        <div class="field">
+          <label>Google Maps JavaScript API key</label>
+          <input
+            type="password"
+            placeholder="Paste Google Maps JavaScript API key"
+            value="${savedKey}"
+            data-google-key-input
+          />
+        </div>
+        <div class="actions">
+          <button class="btn primary" type="submit">${hasApiKey ? "Save Google Maps key" : "Add Google Maps key"}</button>
+          ${hasApiKey ? `<button class="btn danger" type="button" data-remove-google-key>Remove key</button>` : ""}
+          <button class="btn" type="button" data-route="screens">Back to screens</button>
+        </div>
+      </form>
     </section>
   `;
 }

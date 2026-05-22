@@ -13,6 +13,8 @@ const GOOGLE_MAPS_STATUS = {
 };
 const DEFAULT_SCREEN_WIDTH = 1080;
 const DEFAULT_SCREEN_HEIGHT = 1920;
+const TRAFFIC_SCHEDULE_VERSION = 2;
+const TRAFFIC_BAND_FORM_ROWS = 10;
 const SCREEN_SIZE_PRESETS = [
   { id: "portrait-1080x1920", label: "Portrait 1080x1920", width: 1080, height: 1920 },
   { id: "landscape-1920x1080", label: "Landscape 1920x1080", width: 1920, height: 1080 },
@@ -146,15 +148,20 @@ const seedState = {
 };
 
 let state = loadState();
+saveState();
 let uploadDraft = { title: "", type: "video", fileName: "", duration: 15 };
 let filters = { province: "All", text: "" };
 let networkFilters = { province: "All", city: "All" };
 let modal = null;
+let validationPopup = null;
 let saveTimer = null;
 let playerRefreshTimer = null;
 let playerCountdownTimer = null;
 let currentPlayerDuration = 15;
 let calendarBuildToken = 0;
+let lastRenderedRoute = "";
+const calendarRowCache = new Map();
+const MAX_CALENDAR_CACHE_ROWS = 18000;
 let selectedMedia = null;
 let selectedHouseMedia = null;
 let stickerUpload = null;
@@ -235,8 +242,14 @@ function objectArrayOrFallback(value, fallback = []) {
   return items.length ? items : cloneState(fallback);
 }
 
+function testScreenName(name = "") {
+  const trimmed = String(name || "").trim();
+  return /^TEST\b/i.test(trimmed) ? trimmed : `TEST ${trimmed || "Screen"}`;
+}
+
 function hydrateState(loaded) {
   loaded = loaded && typeof loaded === "object" ? loaded : cloneState(seedState);
+  const needsTrafficScheduleMigration = loaded.trafficScheduleVersion !== TRAFFIC_SCHEDULE_VERSION;
   loaded.users = objectArrayOrFallback(loaded.users, seedState.users);
   loaded.screens = objectArrayOrFallback(loaded.screens, seedState.screens);
   loaded.adverts = objectArrayOrFallback(loaded.adverts, seedState.adverts);
@@ -250,15 +263,17 @@ function hydrateState(loaded) {
   });
   loaded.screens = loaded.screens.map((screen) => {
     const seeded = seedState.screens.find((item) => item.id === screen.id);
+    const rate = Number(screen.rate || seeded?.rate || 150);
     const coordinates = normalizedCoordinatesForScreen({ ...seeded, ...screen });
     return {
       ...screen,
+      name: needsTrafficScheduleMigration ? testScreenName(screen.name || seeded?.name) : screen.name,
       width: Number(screen.width || seeded?.width || DEFAULT_SCREEN_WIDTH),
       height: Number(screen.height || seeded?.height || DEFAULT_SCREEN_HEIGHT),
       photos: screen.photos?.length ? screen.photos : seeded?.photos || [],
       tags: arrayOrFallback(screen.tags, seeded?.tags || []),
-      tierPricing: screen.tierPricing || seeded?.tierPricing || defaultTierPricing(screen.rate),
-      rateBands: normalizeTrafficBands(screen.rateBands || seeded?.rateBands, screen.rate || seeded?.rate || 150),
+      tierPricing: screen.tierPricing || seeded?.tierPricing || defaultTierPricing(rate),
+      rateBands: needsTrafficScheduleMigration ? defaultRateBands(rate) : normalizeTrafficBands(screen.rateBands || seeded?.rateBands, rate),
       defaultAdverts: arrayOrFallback(screen.defaultAdverts, seeded?.defaultAdverts || []),
       latitude: coordinates.latitude,
       longitude: coordinates.longitude,
@@ -266,6 +281,7 @@ function hydrateState(loaded) {
       y: coordinates.y
     };
   });
+  loaded.trafficScheduleVersion = TRAFFIC_SCHEDULE_VERSION;
   loaded.moderationRules = loaded.moderationRules?.length ? loaded.moderationRules : [...seedState.moderationRules];
   loaded.houseAdvert = { ...seedState.houseAdvert, ...(loaded.houseAdvert || {}) };
   loaded.houseAdvert.id ||= "house-seed";
@@ -291,11 +307,13 @@ function hydrateState(loaded) {
   loaded.photoIndex ||= {};
   loaded.orders = loaded.orders.map((order) => ({ ...order, items: arrayOrFallback(order.items) }));
   loaded.cart = loaded.cart.map((item) => ({ ...item, items: arrayOrFallback(item.items) }));
+  loaded.toast = "";
   return loaded;
 }
 
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  const { toast: _toast, ...persistentState } = state;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(persistentState));
 }
 
 function scheduleSave() {
@@ -736,10 +754,16 @@ function defaultTierPricing(rate) {
 
 function defaultRateBands(rate) {
   return [
-    { id: "high-am", label: "Morning high traffic", type: "high", start: "07:00", end: "10:00" },
-    { id: "low-day", label: "Low traffic", type: "low", start: "10:00", end: "17:00" },
-    { id: "high-pm", label: "Evening high traffic", type: "high", start: "17:00", end: "21:00" },
-    { id: "closed-night", label: "No traffic", type: "none", start: "21:00", end: "07:00" }
+    { id: "early-morning", label: "Early morning", type: "low", start: "05:00", end: "07:00" },
+    { id: "morning", label: "Morning", type: "low", start: "07:00", end: "10:00" },
+    { id: "late-morning", label: "Late morning", type: "low", start: "10:00", end: "12:00" },
+    { id: "noon", label: "Noon", type: "low", start: "12:00", end: "14:00" },
+    { id: "afternoon", label: "Afternoon", type: "low", start: "14:00", end: "16:00" },
+    { id: "late-afternoon", label: "Late afternoon", type: "low", start: "16:00", end: "18:00" },
+    { id: "early-evening", label: "Early evening", type: "low", start: "18:00", end: "20:00" },
+    { id: "evening", label: "Evening", type: "low", start: "20:00", end: "22:00" },
+    { id: "night", label: "Night", type: "low", start: "22:00", end: "00:00" },
+    { id: "late-night", label: "Late night", type: "low", start: "00:00", end: "05:00" }
   ];
 }
 
@@ -813,6 +837,16 @@ function toast(message) {
   }, 2600);
 }
 
+function showValidationPopup(title, message) {
+  validationPopup = { title, message };
+  render();
+}
+
+function closeValidationPopup() {
+  validationPopup = null;
+  render();
+}
+
 function setRoute(route) {
   window.clearTimeout(playerRefreshTimer);
   window.clearInterval(playerCountdownTimer);
@@ -861,6 +895,7 @@ function clearBookingDraft() {
   state.selectedSlots = {};
   state.activeBookingScreenId = null;
   calendarBuildToken += 1;
+  calendarRowCache.clear();
 }
 
 function login(email, password) {
@@ -1120,6 +1155,7 @@ function addScreenSelectionToCart(screenId, advertId) {
     state.cart.push({ id: uid("c"), advertId, items: [item], total });
   }
   state.selectedSlots[screenId] = [];
+  calendarRowCache.clear();
   saveState();
   markBasketUpdated(screenId);
   updateCalendarCostDom(screenId);
@@ -1556,6 +1592,7 @@ async function removeHouseAdvert(advertId) {
 }
 
 async function addScreenDefaultMediaFiles(screenId, files) {
+  const mainScrollTop = document.querySelector(".main")?.scrollTop || 0;
   const screen = state.screens.find((item) => item.id === screenId);
   if (!screen) return;
   const picked = [...(files || [])].filter((file) => file.type.startsWith("video/") || file.type.startsWith("image/"));
@@ -1590,6 +1627,10 @@ async function addScreenDefaultMediaFiles(screenId, files) {
   saveState();
   render();
   if (added) toast(`${added} screen default advert${added === 1 ? "" : "s"} added. This tablet will use these before the global defaults.`);
+  window.requestAnimationFrame(() => {
+    const main = document.querySelector(".main");
+    if (main) main.scrollTop = mainScrollTop;
+  });
 }
 
 async function removeScreenDefaultAdvert(screenId, advertId) {
@@ -1757,6 +1798,7 @@ function toggleScreen(screenId) {
   state.activeBookingScreenId = null;
   saveState();
   render();
+  prewarmCalendarCache(screenId);
 }
 
 function manageScreen(screenId) {
@@ -1782,8 +1824,12 @@ function bookScreen(screenId) {
   state.selectedSlots[screenId] ||= [];
   state.calendarDate = todayDate();
   state.calendarDay = dayLabel(state.calendarDate);
+  state.route = "book";
   saveState();
   render();
+  window.setTimeout(() => {
+    document.querySelector(".full-booking-calendar")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 0);
 }
 
 function openPlayer(screenId) {
@@ -1835,6 +1881,7 @@ function toggleSlot(screenId, slot, shouldRender = true) {
   if (!state.selectedScreens.includes(screenId)) state.selectedScreens.push(screenId);
   const slots = state.selectedSlots[screenId] || [];
   state.selectedSlots[screenId] = slots.includes(slot) ? slots.filter((s) => s !== slot) : [...slots, slot];
+  calendarRowCache.clear();
   if (shouldRender) {
     saveState();
     render();
@@ -1875,9 +1922,84 @@ function timeInRange(minutes, start, end) {
   return start < end ? minutes >= start && minutes < end : minutes >= start || minutes < end;
 }
 
+function trafficBandIntervals(band) {
+  const start = timeToMinutes(band.start);
+  const end = timeToMinutes(band.end);
+  if (start === null || end === null || start === end) return [];
+  return start < end ? [[start, end]] : [[start, 1440], [0, end]];
+}
+
+function trafficBandsOverlap(first, second) {
+  return trafficBandIntervals(first).some(([aStart, aEnd]) => {
+    return trafficBandIntervals(second).some(([bStart, bEnd]) => aStart < bEnd && bStart < aEnd);
+  });
+}
+
+function validateTrafficBands(bands, options = {}) {
+  const rows = bands.filter((band) => band.label && band.start && band.end);
+  if (options.requireFullDay && !rows.length) return "Complete the traffic schedule before saving.";
+  const invalidTime = rows.find((band) => timeToMinutes(band.start) === null || timeToMinutes(band.end) === null);
+  if (invalidTime) return `${invalidTime.label} has an invalid time. Choose a start and end time.`;
+  const emptyRange = rows.find((band) => {
+    const start = timeToMinutes(band.start);
+    const end = timeToMinutes(band.end);
+    return start !== null && end !== null && start === end;
+  });
+  if (emptyRange) return `${emptyRange.label} has the same start and end time. Choose a real time range.`;
+  for (let index = 0; index < rows.length; index += 1) {
+    for (let next = index + 1; next < rows.length; next += 1) {
+      if (trafficBandsOverlap(rows[index], rows[next])) {
+        return `${rows[index].label} overlaps ${rows[next].label}. A screen can only have one traffic condition at the same time.`;
+      }
+    }
+  }
+  if (options.requireFullDay) {
+    const intervals = rows.flatMap(trafficBandIntervals).sort((first, second) => first[0] - second[0]);
+    let cursor = 0;
+    for (const [start, end] of intervals) {
+      if (start > cursor) return `The schedule does not cover 24 hours. Add a row for ${minutesLabel(cursor)} to ${minutesLabel(start)}.`;
+      cursor = Math.max(cursor, end);
+    }
+    if (cursor < 1440) return `The schedule does not cover 24 hours. Add a row for ${minutesLabel(cursor)} to 12:00 AM.`;
+  }
+  return "";
+}
+
+function minutesLabel(minutes) {
+  const normalized = ((minutes % 1440) + 1440) % 1440;
+  const hours24 = Math.floor(normalized / 60);
+  const mins = normalized % 60;
+  const suffix = hours24 >= 12 ? "PM" : "AM";
+  const hours12 = hours24 % 12 || 12;
+  return `${hours12}:${String(mins).padStart(2, "0")} ${suffix}`;
+}
+
+function trafficBandsFromForm(form) {
+  return Array.from({ length: TRAFFIC_BAND_FORM_ROWS }, (_, index) => ({
+    id: `band-${index}`,
+    label: form[`label-${index}`]?.value.trim() || "",
+    type: form[`type-${index}`]?.value || "low",
+    start: form[`start-${index}`]?.value || "",
+    end: form[`end-${index}`]?.value || ""
+  })).filter((band) => band.label && band.start && band.end);
+}
+
+function setTrafficBandWarning(form, message = "") {
+  const warning = form.querySelector("[data-traffic-warning]");
+  if (!warning) return;
+  warning.textContent = message;
+  warning.hidden = !message;
+}
+
+function validateTrafficBandForm(form) {
+  const message = validateTrafficBands(trafficBandsFromForm(form), { requireFullDay: true });
+  setTrafficBandWarning(form, message);
+  return message;
+}
+
 function rateBandForSlot(screen, slot) {
   const minutes = slotTimeValue(slot);
-  return (screen.rateBands || []).find((band) => timeInRange(minutes, timeToMinutes(band.start), timeToMinutes(band.end)));
+  return [...(screen.rateBands || [])].reverse().find((band) => timeInRange(minutes, timeToMinutes(band.start), timeToMinutes(band.end)));
 }
 
 function trafficForSlot(screen, slot) {
@@ -1898,7 +2020,7 @@ function slotPrice(screen, slotOrDate) {
 }
 
 function currentBookingAdvert() {
-  const adverts = state.adverts.filter((a) => a.customerId === currentUser()?.id);
+  const adverts = isStaff() ? state.adverts : state.adverts.filter((a) => a.customerId === currentUser()?.id);
   return adverts.find((a) => a.id === state.selectedAdvertId) || adverts.find((a) => a.status === "approved") || adverts[0] || null;
 }
 
@@ -1946,6 +2068,7 @@ function todayDate() {
 function setCalendarDate(date) {
   state.calendarDate = date;
   state.calendarDay = dayLabel(date);
+  calendarRowCache.clear();
   saveState();
   render();
 }
@@ -2228,13 +2351,15 @@ function updateTierPricing(form) {
 function updateRateBands(form) {
   const screen = state.screens.find((item) => item.id === form.screenId.value);
   if (!screen) return;
-  screen.rateBands = Array.from({ length: 8 }, (_, index) => ({
-    id: `band-${index}`,
-    label: form[`label-${index}`].value.trim(),
-    type: form[`type-${index}`].value,
-    start: form[`start-${index}`].value,
-    end: form[`end-${index}`].value
-  })).filter((band) => band.label && band.start && band.end);
+  const bands = trafficBandsFromForm(form);
+  const warning = validateTrafficBands(bands, { requireFullDay: true });
+  if (warning) {
+    showValidationPopup("Traffic schedule needs fixing", warning);
+    return;
+  }
+  setTrafficBandWarning(form, "");
+  screen.rateBands = bands;
+  calendarRowCache.clear();
   saveState();
   toast(`${screen.name} traffic schedule updated.`);
 }
@@ -2279,6 +2404,10 @@ function addScreen(form) {
   if (state.screens.some((screen) => screen.tabletId.toLowerCase() === tabletId.toLowerCase())) {
     return toast("Tablet ID already exists. Use a unique tablet ID for each screen.");
   }
+  const rateBands = trafficBandsFromForm(form);
+  const trafficWarning = validateTrafficBands(rateBands, { requireFullDay: true });
+  if (trafficWarning) return showValidationPopup("Traffic schedule needs fixing", trafficWarning);
+  setTrafficBandWarning(form, "");
   const province = normalizeProvinceName(form.province.value);
   const city = normalizeDistrictName(province, form.city.value);
   const latitudeInput = Number(form.latitude.value);
@@ -2304,7 +2433,7 @@ function addScreen(form) {
     brightness: 80,
     width,
     height,
-    rateBands: defaultRateBands(Number(form.rate.value)),
+    rateBands,
     defaultAdverts: [],
     lastSeen: "new",
     tags: form.tags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
@@ -2377,6 +2506,7 @@ function navItems() {
     ["capacity", t("capacity")],
     ["screens", t("screens")],
     ["adverts", t("adverts")],
+    ["centralPool", "Central ad pool"],
     ["stats", t("liveStats")],
     ["history", "History"],
     ["orders", t("orders")],
@@ -2389,15 +2519,24 @@ function navItems() {
 function render() {
   const app = document.querySelector("#app");
   const user = currentUser();
+  const routeBeforeRender = lastRenderedRoute;
+  const shouldRestoreScroll = routeBeforeRender === state.route;
+  const pageScrollTop = shouldRestoreScroll ? window.scrollY : 0;
+  const mainBeforeRender = document.querySelector(".main");
+  const mainScrollTop = shouldRestoreScroll ? mainBeforeRender?.scrollTop || 0 : 0;
+  const gridBeforeRender = document.querySelector(".week-slot-grid");
+  const gridScrollTop = shouldRestoreScroll ? gridBeforeRender?.scrollTop || 0 : 0;
   if (state.route === "player") {
     app.innerHTML = renderPlayer();
     bindCommon();
     startPlayerCountdown(currentPlayerDuration);
+    lastRenderedRoute = state.route;
     return;
   }
   if (!user) {
     app.innerHTML = renderAuth();
     bindAuth();
+    lastRenderedRoute = state.route;
     return;
   }
   if (user.role === "customer" && !customerCanBook(user) && !["profile", "customerDashboard"].includes(state.route)) {
@@ -2420,10 +2559,24 @@ function render() {
       <main class="main">${renderRoute()}</main>
     </div>
     ${modal ? renderModal() : ""}
+    ${validationPopup ? renderValidationPopup() : ""}
     ${state.toast ? `<div class="toast">${state.toast}</div>` : ""}
   `;
   bindCommon();
   hydrateCalendars();
+  lastRenderedRoute = state.route;
+  if (shouldRestoreScroll) {
+    window.requestAnimationFrame(() => {
+      window.scrollTo(0, pageScrollTop);
+      const mainAfterRender = document.querySelector(".main");
+      if (mainAfterRender) mainAfterRender.scrollTop = mainScrollTop;
+      const gridAfterRender = document.querySelector(".week-slot-grid");
+      if (gridAfterRender) {
+        gridAfterRender.scrollTop = gridScrollTop;
+        gridAfterRender.dispatchEvent(new Event("scroll"));
+      }
+    });
+  }
 }
 
 function renderAuth() {
@@ -2490,6 +2643,7 @@ function renderRoute() {
     screens: renderScreensAdmin,
     screenManage: renderScreenManage,
     adverts: renderAdvertsAdmin,
+    centralPool: renderCentralPool,
     settings: renderSettings,
     team: renderTeam
   };
@@ -2503,8 +2657,6 @@ function renderHeader(title, copy, buttons = "") {
 function renderDashboard() {
   const paid = state.orders.reduce((sum, order) => sum + order.total, 0);
   const live = state.screens.filter((screen) => screen.status === "online").length;
-  const house = state.houseAdvert || seedState.houseAdvert;
-  const housePool = state.houseAdverts?.length ? state.houseAdverts : [house];
   return `
     ${renderHeader("Control room", "Manage bookings, screen tablets, approvals, and playback delivery.", `<button class="btn primary" data-modal="screen">Add screen</button>`)}
     <div class="grid three">
@@ -2526,26 +2678,40 @@ function renderDashboard() {
         ${state.screens.filter((s) => s.status !== "online").map(renderScreenCard).join("") || `<p class="hint">All screens are healthy.</p>`}
       </section>
     </div>
-    <section class="panel" style="margin-top:16px">
-      <h2>Default adverts for available slots</h2>
-      <p class="hint">When no customer has bought a 15-second slot, tablets randomly play one advert from this pool.</p>
+  `;
+}
+
+function renderCentralPool() {
+  if (!isStaff()) return `${renderHeader("Central ad pool", "Only staff can manage default adverts.", "")}<section class="panel"><p class="hint">Ask an admin for access.</p></section>`;
+  const house = state.houseAdvert || seedState.houseAdvert;
+  const housePool = state.houseAdverts?.length ? state.houseAdverts : [house];
+  return `
+    ${renderHeader("Central ad pool", "Default adverts played in available, unbooked 15-second slots across all screens.", "")}
+    <section class="panel">
+      <div class="screen-head">
+        <div>
+          <h2>Default adverts for available slots</h2>
+          <p class="hint">Every screen uses this central pool when a slot has no approved paid advert. The player queues these adverts in order, one slot after another.</p>
+        </div>
+        <span class="badge ok">${housePool.length} advert${housePool.length === 1 ? "" : "s"}</span>
+      </div>
       <form class="form" id="houseAdvertForm">
         <div class="upload-zone compact-upload">
           <input class="file-input" id="houseMediaFile" type="file" accept="video/*,image/*" multiple data-house-media-file />
           <label class="btn primary" for="houseMediaFile">Add default videos</label>
           <b>Add 15-second default adverts</b>
-          <span class="hint">You can add many videos. When a slot is available, the player picks one randomly.</span>
+          <span class="hint">You can add many videos. The player queues the next central default advert whenever a slot is available.</span>
         </div>
         <div class="default-pool">
           ${housePool.map((advert) => `
             <article class="screen-card">
-              <div class="screen-head"><div><b>${advert.title}</b><div class="meta">${advert.fileName} - ${advert.duration || 15}s default advert</div></div><span class="badge ok">pool</span></div>
+              <div class="screen-head"><div><b>${advert.title}</b><div class="meta">${advert.fileName} - ${advert.duration || 15}s default advert${advert.width && advert.height ? ` - ${advert.width}x${advert.height}` : ""}</div></div><span class="badge ok">pool</span></div>
               ${renderAdvertMiniPreview(advert)}
               <div class="actions"><button class="btn small danger" type="button" data-remove-house-ad="${advert.id || ""}">Remove</button></div>
             </article>
           `).join("")}
         </div>
-        <div class="field"><label>Screen message</label><input name="message" value="${house.message}" required /></div>
+        <div class="field"><label>Screen fallback message</label><input name="message" value="${house.message}" required /></div>
         <button class="btn primary" type="submit">Save pool settings</button>
       </form>
     </section>
@@ -2924,7 +3090,7 @@ function renderStickerMaker() {
 }
 
 function renderBooking() {
-  const adverts = state.adverts.filter((a) => a.customerId === currentUser().id);
+  const adverts = isStaff() ? state.adverts : state.adverts.filter((a) => a.customerId === currentUser().id);
   const selectedAdvert = currentBookingAdvert();
   const editingAdvert = state.adverts.find((a) => a.id === state.editingAdvertId);
   const visibleScreens = screensSelectedFirst(filteredScreens());
@@ -3159,7 +3325,7 @@ function renderScreenSummaryPanel(screen) {
           <h2>${screen.name}</h2>
           <p class="hint">${screen.tabletId} - ${screen.city}, ${screen.province}</p>
         </div>
-        ${state.route === "screenManage" ? "" : `<button class="btn primary" data-manage-screen="${screen.id}">Manage</button>`}
+        ${state.route === "screenManage" ? `<button class="btn primary" data-book-screen="${screen.id}">Book</button>` : `<button class="btn primary" data-manage-screen="${screen.id}">Manage</button>`}
       </div>
       <div class="screen-status-grid">
         <div><span>Status</span><b>${screen.status}</b><small>Last seen ${screen.lastSeen}</small></div>
@@ -3194,7 +3360,7 @@ function renderScreenSummaryPanel(screen) {
 function renderRateBandForm(screen) {
   const bands = normalizeTrafficBands(screen.rateBands, screen.rate);
   const slots = [...bands];
-  while (slots.length < 8) slots.push({ id: `band-${slots.length}`, label: "", type: "low", start: "00:00", end: "00:00" });
+  while (slots.length < TRAFFIC_BAND_FORM_ROWS) slots.push({ id: `band-${slots.length}`, label: "", type: "low", start: "", end: "" });
   return `
     <form class="rate-band-form" data-rate-band-form>
       <input type="hidden" name="screenId" value="${screen.id}" />
@@ -3207,19 +3373,24 @@ function renderRateBandForm(screen) {
         <span class="traffic-pill low">Low traffic</span>
         <span class="traffic-pill none">No traffic</span>
       </div>
-      ${slots.map((band, index) => `
-        <div class="rate-band-row">
-          <input name="label-${index}" placeholder="Label" value="${band.label || ""}" />
-          <select name="type-${index}">
-            ${["high", "low", "none"].map((type) => `<option value="${type}" ${band.type === type ? "selected" : ""}>${trafficTypeLabel(type)}</option>`).join("")}
-          </select>
-          <input name="start-${index}" type="time" value="${band.start || "00:00"}" />
-          <input name="end-${index}" type="time" value="${band.end || "00:00"}" />
-        </div>
-      `).join("")}
-      <button class="btn primary" type="submit">Save traffic schedule</button>
+      ${renderTrafficBandRows(slots)}
+      <p class="traffic-warning" data-traffic-warning hidden></p>
+      <button class="btn primary" type="submit">Update traffic schedule</button>
     </form>
   `;
+}
+
+function renderTrafficBandRows(slots) {
+  return slots.map((band, index) => `
+    <div class="rate-band-row" data-traffic-band-row>
+      <input name="label-${index}" placeholder="Label" value="${escapeAttribute(band.label || "")}" />
+      <select name="type-${index}">
+        ${["high", "low", "none"].map((type) => `<option value="${type}" ${band.type === type ? "selected" : ""}>${trafficTypeLabel(type)}</option>`).join("")}
+      </select>
+      <input name="start-${index}" type="time" value="${band.start || ""}" />
+      <input name="end-${index}" type="time" value="${band.end || ""}" />
+    </div>
+  `).join("");
 }
 
 function renderTierPricingForm(screen) {
@@ -3270,6 +3441,69 @@ function hydrateCalendars() {
   document.querySelectorAll("[data-calendar-build]").forEach((calendar) => buildCalendarRows(calendar));
 }
 
+function calendarCacheKey(screen, dates, bookedSet, selectedSet, basketSet) {
+  return [
+    screen.id,
+    dates[0],
+    screen.rate,
+    JSON.stringify(screen.rateBands || []),
+    bookedSet.size,
+    selectedSet.size,
+    basketSet.size
+  ].join("|");
+}
+
+function trimCalendarCache() {
+  if (calendarRowCache.size <= MAX_CALENDAR_CACHE_ROWS) return;
+  const removeCount = calendarRowCache.size - MAX_CALENDAR_CACHE_ROWS;
+  let removed = 0;
+  for (const key of calendarRowCache.keys()) {
+    calendarRowCache.delete(key);
+    removed += 1;
+    if (removed >= removeCount) break;
+  }
+}
+
+function scheduleBackgroundWork(task) {
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(task, { timeout: 160 });
+    return;
+  }
+  window.setTimeout(() => task({ timeRemaining: () => 12 }), 16);
+}
+
+function cachedSlotRow(cachePrefix, screen, index, dates, bookedSet, selectedSet, basketSet) {
+  const key = `${cachePrefix}|${index}`;
+  if (!calendarRowCache.has(key)) {
+    calendarRowCache.set(key, renderSlotRow(screen, index, dates, bookedSet, selectedSet, basketSet));
+    trimCalendarCache();
+  }
+  return calendarRowCache.get(key);
+}
+
+function prewarmCalendarCache(screenId, startDate = state.calendarDate || todayDate()) {
+  const screen = state.screens.find((item) => item.id === screenId);
+  if (!screen) return;
+  const dates = weekDates(startDate);
+  const bookedSet = bookedSlotSet(screenId);
+  const selectedSet = new Set(state.selectedSlots[screenId] || []);
+  const basketSet = new Set(cartSlotsFor(screenId));
+  const cachePrefix = calendarCacheKey(screen, dates, bookedSet, selectedSet, basketSet);
+  const totalRows = 24 * 60 * 4;
+  let index = 0;
+
+  function warm(deadline) {
+    const started = performance.now();
+    while (index < totalRows && performance.now() - started < 12 && (!deadline?.timeRemaining || deadline.timeRemaining() > 2)) {
+      cachedSlotRow(cachePrefix, screen, index, dates, bookedSet, selectedSet, basketSet);
+      index += 1;
+    }
+    if (index < totalRows) scheduleBackgroundWork(warm);
+  }
+
+  scheduleBackgroundWork(warm);
+}
+
 function buildCalendarRows(calendar) {
   const screenId = calendar.dataset.calendarBuild;
   const grid = calendar.querySelector(".week-slot-grid");
@@ -3281,46 +3515,71 @@ function buildCalendarRows(calendar) {
   const selectedSet = new Set(state.selectedSlots[screenId] || []);
   const basketSet = new Set(cartSlotsFor(screenId));
   const token = ++calendarBuildToken;
-  const totalRows = 5760;
-  const instantRows = 17;
-  const chunkSize = 120;
-  const started = performance.now();
-  let index = 0;
+  const totalRows = 24 * 60 * 4;
+  const rowHeight = 31;
+  const headerRows = 1;
+  const bufferRows = 36;
+  const cachePrefix = calendarCacheKey(screen, dates, bookedSet, selectedSet, basketSet);
+  let cachedRows = 0;
+  let lastStart = -1;
+  let lastEnd = -1;
 
   function updateProgress(done) {
     const percent = Math.floor((done / totalRows) * 100);
-    const elapsed = Math.max(1, performance.now() - started);
-    const remainingMs = done ? Math.max(0, (elapsed / done) * (totalRows - done)) : 0;
-    const secondsLeft = Math.ceil(remainingMs / 1000);
     const bar = progress.querySelector("[data-progress-bar]");
     const text = progress.querySelector("[data-progress-text]");
     if (bar) bar.style.width = `${percent}%`;
-    if (text) text.textContent = `${percent}% - about ${secondsLeft}s left`;
+    if (text) text.textContent = percent < 100 ? `${percent}% - preparing full day in background` : "Full day ready";
   }
 
-  function step() {
+  function renderWindow(force = false) {
     if (token !== calendarBuildToken || !calendar.isConnected) return;
-    const end = Math.min(totalRows, index + chunkSize);
+    const currentScrollTop = grid.scrollTop;
+    const scrollTop = Math.max(0, currentScrollTop - 50);
+    const visibleRows = Math.ceil((grid.clientHeight || 560) / rowHeight);
+    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - bufferRows);
+    const end = Math.min(totalRows, start + visibleRows + bufferRows * 2);
+    if (!force && start === lastStart && end === lastEnd) return;
+    lastStart = start;
+    lastEnd = end;
+
+    const preserveScrollTop = grid.scrollTop;
+    grid.querySelectorAll(".calendar-row, .calendar-spacer").forEach((node) => node.remove());
+
     let html = "";
-    for (; index < end; index += 1) {
-      html += renderSlotRow(screen, index, dates, bookedSet, selectedSet, basketSet);
+    if (start) html += `<div class="calendar-spacer" style="height:${start * rowHeight}px"></div>`;
+    for (let index = start; index < end; index += 1) {
+      html += cachedSlotRow(cachePrefix, screen, index, dates, bookedSet, selectedSet, basketSet);
     }
-    progress.insertAdjacentHTML("beforebegin", html);
-    updateProgress(index);
-    if (index < totalRows) {
-      window.setTimeout(step, 0);
+    const bottomRows = totalRows - end;
+    if (bottomRows) html += `<div class="calendar-spacer" style="height:${bottomRows * rowHeight}px"></div>`;
+    if (progress.isConnected) {
+      progress.insertAdjacentHTML("beforebegin", html);
     } else {
-      progress.remove();
+      grid.insertAdjacentHTML("beforeend", html);
+    }
+    grid.scrollTop = preserveScrollTop;
+  }
+
+  function precompute(deadline) {
+    if (token !== calendarBuildToken || !calendar.isConnected) return;
+    const started = performance.now();
+    while (cachedRows < totalRows && performance.now() - started < 12 && (!deadline?.timeRemaining || deadline.timeRemaining() > 2)) {
+      cachedSlotRow(cachePrefix, screen, cachedRows, dates, bookedSet, selectedSet, basketSet);
+      cachedRows += 1;
+    }
+    updateProgress(cachedRows);
+    if (cachedRows < totalRows) {
+      scheduleBackgroundWork(precompute);
+    } else {
+      progress.hidden = true;
     }
   }
 
-  let instantHtml = "";
-  for (; index < instantRows; index += 1) {
-    instantHtml += renderSlotRow(screen, index, dates, bookedSet, selectedSet, basketSet);
-  }
-  progress.insertAdjacentHTML("beforebegin", instantHtml);
-  updateProgress(index);
-  window.setTimeout(step, 0);
+  renderWindow(true);
+  updateProgress(0);
+  grid.addEventListener("scroll", () => window.requestAnimationFrame?.(() => renderWindow()) || renderWindow(), { passive: true });
+  scheduleBackgroundWork(precompute);
 }
 
 function renderCalendarCostSummary(screenId) {
@@ -3505,8 +3764,10 @@ function renderSlotRow(screen, index, dates, bookedSet, selectedSet, basketSet) 
   const seconds = index * 15;
   const time = formatTime(seconds);
   return `
+    <div class="calendar-row">
     <div class="week-time ${time.endsWith(":00:00") ? "hour-start" : ""}">${time}</div>
     ${dates.map((slotDate) => renderSlotCell(screen, slotDate, time, bookedSet, selectedSet, basketSet)).join("")}
+    </div>
   `;
 }
 
@@ -3612,19 +3873,10 @@ function renderOrders() {
 }
 
 function renderScreensAdmin() {
-  const realScreen = realAndroidScreen();
   const visibleScreens = screensSelectedFirst(filteredScreens());
   const selectedScreen = state.screens.find((screen) => screen.id === state.selectedScreens[0]) || visibleScreens[0];
   return `
     ${renderHeader("Screens", "Add, identify, monitor, and manage every tablet display location.", `<button class="btn primary" data-modal="screen">Add screen</button>`)}
-    ${realScreen ? `<section class="panel real-screen-banner">
-      <div>
-        <span class="badge ok">Android test screen</span>
-        <h2>${realScreen.name}</h2>
-        <p class="hint">${realScreen.tabletId} - ${realScreen.city}, ${realScreen.province} - ${money(realScreen.rate)}/15s</p>
-      </div>
-      <div class="actions"><button class="btn primary" data-show-real-screen>Show this screen</button><button class="btn" data-player="${realScreen.id}">Open player</button><button class="btn" data-copy-player="${realScreen.id}">Copy player URL</button></div>
-    </section>` : ""}
     <div class="grid two">
       <section class="panel">${renderFilters()}${renderMap(visibleScreens)}</section>
       <div class="screen-side-panel">
@@ -3640,7 +3892,7 @@ function renderScreenManage() {
   state.managedScreenId = screen.id;
   const perf = screenPerformanceFor(screen);
   return `
-    ${renderHeader(`Manage ${screen.name}`, "Edit screen identity, status, high traffic price, traffic hours, defaults, and playback settings.", `<button class="btn" data-route="screens">Back to screens</button><button class="btn" data-player="${screen.id}">Open player</button><button class="btn primary" data-copy-player="${screen.id}">Copy player URL</button>`)}
+    ${renderHeader(`Manage ${screen.name}`, "Edit screen identity, status, high traffic price, traffic hours, and playback settings.", `<button class="btn" data-route="screens">Back to screens</button><button class="btn" data-player="${screen.id}">Open player</button><button class="btn primary" data-copy-player="${screen.id}">Copy player URL</button>`)}
     <div class="grid two manage-grid">
       <section class="panel">
         <div class="screen-head"><div><h2>Essential information</h2><p class="hint">${screen.tabletId} - ${playerUrl(screen)}</p></div><span class="badge ${screen.status === "online" ? "ok" : screen.status === "warning" ? "warn" : "bad"}">${screen.status}</span></div>
@@ -3678,10 +3930,7 @@ function renderScreenManage() {
       <h2>Traffic pricing and availability</h2>
       ${renderRateBandForm(screen)}
     </section>
-    <div class="grid two manage-grid">
-      <section class="panel">${renderScreenDefaults(screen)}</section>
-      <section class="panel">${renderScreenHistory(screen)}</section>
-    </div>
+    <section class="panel">${renderScreenHistory(screen)}</section>
   `;
 }
 
@@ -3710,7 +3959,7 @@ function renderScreenDefaults(screen) {
     <div class="screen-defaults">
       <div class="row">
         <div><b>Screen default videos</b><div class="meta">Used on this tablet when a slot is available. If empty, it uses the global default pool.</div></div>
-        <label class="btn small primary" for="screenDefaultFile-${screen.id}">Add default</label>
+        <button class="btn small primary" type="button" data-open-screen-default="${screen.id}">Add default</button>
       </div>
       <input class="file-input" id="screenDefaultFile-${screen.id}" type="file" accept="video/*,image/*" multiple data-screen-default-file="${screen.id}" />
       ${defaults.length ? `<div class="screen-default-list">
@@ -3811,13 +4060,42 @@ function renderTeam() {
 }
 
 function defaultPoolForScreen(screen) {
-  if (screen?.defaultAdverts?.length) return screen.defaultAdverts;
   return state.houseAdverts?.length ? state.houseAdverts : [state.houseAdvert || seedState.houseAdvert];
 }
 
-function randomDefaultAdvert(screen) {
+function screenDefaultPool(screen) {
+  return screen?.defaultAdverts?.length ? screen.defaultAdverts : defaultPoolForScreen(screen);
+}
+
+function slotIndexForDateTime(slotKey = currentSlotKey()) {
+  const time = slotTimeValue(slotKey);
+  return time === null ? 0 : Math.floor(time / 15);
+}
+
+function queuedDefaultAdvert(screen, slotKey = currentSlotKey()) {
   const pool = defaultPoolForScreen(screen);
-  return pool[Math.floor(Math.random() * pool.length)] || seedState.houseAdvert;
+  if (!pool.length) return seedState.houseAdvert;
+  return pool[slotIndexForDateTime(slotKey) % pool.length] || seedState.houseAdvert;
+}
+
+function scheduledAdvertForSlot(screen, slotKey = currentSlotKey()) {
+  const paidOrder = state.orders.find((order) => order.status === "paid" && order.items.some((item) => item.screenId === screen.id && item.slots.includes(slotKey)));
+  const advert = paidOrder ? state.adverts.find((item) => item.id === paidOrder.advertId && item.status === "approved") : null;
+  return advert || queuedDefaultAdvert(screen, slotKey);
+}
+
+function screenSlotSchedule(screen, startDate = todayDate(), days = 1) {
+  const dates = Array.from({ length: days }, (_, index) => addDays(startDate, index));
+  return dates.flatMap((date) => Array.from({ length: 24 * 60 * 4 }, (_, index) => {
+    const slot = `${date} ${formatTime(index * 15)}`;
+    const advert = scheduledAdvertForSlot(screen, slot);
+    return {
+      screenId: screen.id,
+      slot,
+      advertId: advert.id,
+      source: state.orders.some((order) => order.status === "paid" && order.advertId === advert.id && order.items.some((item) => item.screenId === screen.id && item.slots.includes(slot))) ? "paid" : "default"
+    };
+  }));
 }
 
 function currentSlotKey() {
@@ -3832,8 +4110,7 @@ function renderPlayer() {
   const orientationClass = screenOrientation(screen).toLowerCase();
   const frameRatio = `${Number(screen.width) || DEFAULT_SCREEN_WIDTH} / ${Number(screen.height) || DEFAULT_SCREEN_HEIGHT}`;
   const currentSlot = currentSlotKey();
-  const scheduled = state.orders.flatMap((order) => order.items.filter((item) => item.screenId === screen.id && item.slots.includes(currentSlot)).map(() => state.adverts.find((a) => a.id === order.advertId))).filter((advert) => advert?.status === "approved");
-  const advert = scheduled[0] || randomDefaultAdvert(screen);
+  const advert = scheduledAdvertForSlot(screen, currentSlot);
   const duration = advert.billableSeconds || advert.duration || 15;
   currentPlayerDuration = duration;
   window.clearTimeout(playerRefreshTimer);
@@ -3914,8 +4191,33 @@ function renderModal() {
           <p class="hint">Each screen defines its own advert size. Customers can only book this screen with video or image adverts matching this exact pixel size.</p>
           <div class="field"><label>Tags</label><input name="tags" placeholder="Mall, Tourist, Office" /></div>
           <div class="field"><label>Location photo URLs (up to 6, one per line)</label><textarea name="photos" placeholder="https://example.com/screen-front.jpg"></textarea></div>
+          <div class="rate-band-form">
+            <div class="rate-band-head">
+              <b>Traffic schedule</b>
+              <span class="meta">Required. Default is low traffic across the full day. Change any rows to high traffic or no traffic before saving.</span>
+            </div>
+            <div class="traffic-legend">
+              <span class="traffic-pill high">High traffic</span>
+              <span class="traffic-pill low">Low traffic</span>
+              <span class="traffic-pill none">No traffic</span>
+            </div>
+            ${renderTrafficBandRows(defaultRateBands(150))}
+            <p class="traffic-warning" data-traffic-warning hidden></p>
+          </div>
           <button class="btn primary" type="submit">Save screen</button>
         </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderValidationPopup() {
+  return `
+    <div class="validation-overlay" role="alertdialog" aria-modal="true" aria-labelledby="validationTitle">
+      <div class="validation-popup">
+        <h2 id="validationTitle">${escapeAttribute(validationPopup.title || "Please fix this")}</h2>
+        <p>${escapeAttribute(validationPopup.message || "")}</p>
+        <button class="btn primary" type="button" data-close-validation>OK</button>
       </div>
     </div>
   `;
@@ -4027,16 +4329,34 @@ function bindCommon() {
       return;
     }
     const dateButton = event.target.closest("[data-date-nav]");
-    if (dateButton) moveCalendarDate(Number(dateButton.dataset.dateNav));
+    if (dateButton) {
+      event.preventDefault();
+      moveCalendarDate(Number(dateButton.dataset.dateNav));
+    }
   }));
-  document.querySelectorAll("[data-calendar-date]").forEach((input) => input.addEventListener("change", (event) => setCalendarDate(event.target.value)));
+  document.querySelectorAll("[data-calendar-date]").forEach((input) => input.addEventListener("change", (event) => {
+    event.preventDefault();
+    setCalendarDate(event.target.value);
+  }));
   document.querySelector("#houseAdvertForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
     updateHouseAdvert(event.target);
   });
   document.querySelector("[data-house-media-file]")?.addEventListener("change", (event) => addHouseMediaFiles(event.target.files));
   document.querySelectorAll("[data-remove-house-ad]").forEach((button) => button.addEventListener("click", () => removeHouseAdvert(button.dataset.removeHouseAd)));
-  document.querySelectorAll("[data-screen-default-file]").forEach((input) => input.addEventListener("change", (event) => addScreenDefaultMediaFiles(input.dataset.screenDefaultFile, event.target.files)));
+  document.querySelectorAll("[data-open-screen-default]").forEach((button) => button.addEventListener("click", () => {
+    const main = document.querySelector(".main");
+    const scrollTop = main?.scrollTop || 0;
+    const input = document.querySelector(`[data-screen-default-file="${button.dataset.openScreenDefault}"]`);
+    input?.click();
+    window.requestAnimationFrame(() => {
+      if (main) main.scrollTop = scrollTop;
+    });
+  }));
+  document.querySelectorAll("[data-screen-default-file]").forEach((input) => input.addEventListener("change", async (event) => {
+    await addScreenDefaultMediaFiles(input.dataset.screenDefaultFile, event.target.files);
+    event.target.value = "";
+  }));
   document.querySelectorAll("[data-remove-screen-default]").forEach((button) => button.addEventListener("click", () => {
     const [screenId, advertId] = button.dataset.removeScreenDefault.split("|");
     removeScreenDefaultAdvert(screenId, advertId);
@@ -4049,10 +4369,12 @@ function bindCommon() {
     event.preventDefault();
     updateTierPricing(event.target);
   }));
-  document.querySelectorAll("[data-rate-band-form]").forEach((form) => form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    updateRateBands(event.target);
-  }));
+  document.querySelectorAll("[data-rate-band-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      updateRateBands(event.target);
+    });
+  });
   document.querySelectorAll("[data-screen-settings-form]").forEach((form) => form.addEventListener("submit", (event) => {
     event.preventDefault();
     updateScreenSettings(event.target);
@@ -4089,7 +4411,9 @@ function bindCommon() {
     modal = null;
     render();
   });
-  document.querySelector("#screenForm")?.addEventListener("submit", (event) => {
+  document.querySelector("[data-close-validation]")?.addEventListener("click", closeValidationPopup);
+  const screenForm = document.querySelector("#screenForm");
+  screenForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     addScreen(event.target);
   });

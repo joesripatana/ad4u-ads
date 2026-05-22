@@ -1,5 +1,6 @@
 :root {
   color-scheme: light;
+  --topbar-height: 92px;
   --ink: #071126;
   --muted: #607089;
   --line: #cfd8ea;
@@ -152,7 +153,7 @@ button:disabled {
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: 40;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -170,6 +171,11 @@ button:disabled {
   line-height: 1.05;
 }
 
+.title {
+  min-width: 0;
+  padding-right: 12px;
+}
+
 .title p {
   margin: 7px 0 0;
   color: var(--muted);
@@ -177,7 +183,9 @@ button:disabled {
 
 .actions {
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: wrap;
+  align-items: center;
   gap: 9px;
   justify-content: flex-end;
 }
@@ -897,7 +905,15 @@ button:disabled {
 }
 
 .full-booking-calendar {
+  position: sticky;
+  top: var(--topbar-height);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - var(--topbar-height) - 24px);
   margin-top: 16px;
+  overflow: hidden;
+  scroll-margin-top: calc(var(--topbar-height) + 12px);
 }
 
 .screen-head,
@@ -958,11 +974,7 @@ button:disabled {
 }
 
 .file-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
+  display: none;
 }
 
 .media-preview {
@@ -1108,38 +1120,50 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+  align-content: start;
 }
 
 .screen-default-item {
   display: grid;
   gap: 8px;
+  min-width: 0;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: white;
 }
 
+.screen-default-item .screen-head,
+.screen-default-item .screen-head > div,
+.screen-default-item b,
+.screen-default-item .meta {
+  min-width: 0;
+}
+
+.screen-default-item b,
+.screen-default-item .meta,
+.screen-default-preview span {
+  overflow-wrap: anywhere;
+}
+
+.screen-default-preview {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .screen-default-preview video,
 .screen-default-preview img {
+  display: block;
   width: 100%;
   height: 100px;
+  max-height: 100px;
   object-fit: contain;
   border-radius: 6px;
   background: #0b1418;
-}
-
-.real-screen-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 14px;
-  border-color: #73c5a1;
-  background: #f0fbf5;
-}
-
-.real-screen-banner h2 {
-  margin: 8px 0 4px;
 }
 
 .capacity-layout {
@@ -1579,6 +1603,10 @@ button:disabled {
 }
 
 .full-day-calendar {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
   margin-top: 8px;
 }
 
@@ -1691,18 +1719,31 @@ button:disabled {
 .week-slot-grid {
   display: grid;
   grid-template-columns: 76px repeat(7, minmax(112px, 1fr));
-  max-height: 720px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
   overflow: auto;
+  overflow-anchor: none;
   background: var(--line);
   gap: 1px;
+}
+
+.calendar-row {
+  display: contents;
+}
+
+.calendar-spacer {
+  grid-column: 1 / -1;
+  min-height: 1px;
+  background: transparent;
 }
 
 .calendar-progress {
   grid-column: 1 / -1;
   display: grid;
-  gap: 10px;
-  padding: 18px;
-  background: white;
+  gap: 7px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .progress-head {
@@ -1711,16 +1752,16 @@ button:disabled {
   gap: 12px;
   align-items: center;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .progress-head b {
   color: var(--ink);
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .progress-track {
-  height: 10px;
+  height: 6px;
   overflow: hidden;
   border-radius: 999px;
   background: #dfe7ec;
@@ -1879,6 +1920,21 @@ button:disabled {
   border-radius: 7px;
   padding: 6px 8px;
   background: white;
+}
+
+.traffic-warning {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid #f1b94e;
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #7a4b00;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.traffic-warning[hidden] {
+  display: none;
 }
 
 .traffic-legend {
@@ -2053,6 +2109,41 @@ button:disabled {
   background: rgba(13, 22, 29, 0.48);
 }
 
+.validation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(13, 22, 29, 0.5);
+}
+
+.validation-popup {
+  width: min(460px, 100%);
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.validation-popup h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+.validation-popup p {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.validation-popup .btn {
+  width: 100%;
+}
+
 .modal-body {
   width: min(680px, 100%);
   max-height: min(780px, 92vh);
@@ -2065,11 +2156,13 @@ button:disabled {
   right: 18px;
   bottom: 18px;
   z-index: 30;
+  pointer-events: none;
   max-width: 360px;
   border-radius: 8px;
   padding: 12px 14px;
   background: #14232d;
   color: white;
+  overflow-wrap: anywhere;
   box-shadow: var(--shadow);
 }
 
@@ -2249,6 +2342,15 @@ button:disabled {
   .topbar {
     position: static;
     padding-top: 0;
+  }
+
+  .full-booking-calendar {
+    position: static;
+    max-height: none;
+  }
+
+  .week-slot-grid {
+    max-height: 720px;
   }
 
   .sticker-upload-panel {
